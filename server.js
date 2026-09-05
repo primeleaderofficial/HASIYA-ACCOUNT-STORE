@@ -4,27 +4,28 @@ const helmet = require("helmet");
 const crypto = require("crypto");
 const { Pool } = require("pg");
 const path = require("path");
-const fs = require("fs");
 
 const app = express();
 
-app.set("trust proxy", 1);
-
 const PORT = process.env.PORT || 10000;
 const ROOT = __dirname;
+const PUBLIC_DIR = path.join(ROOT, "public");
+
+app.set("trust proxy", 1);
 
 app.use(
   helmet({
-    contentSecurityPolicy: false
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
   })
 );
 
 app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
-/* =========================================================
-   DATABASE
-========================================================= */
+// ============================================================
+// DATABASE
+// ============================================================
 
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL is missing.");
@@ -39,83 +40,85 @@ const pool = new Pool({
   connectionTimeoutMillis: 10000
 });
 
-/* =========================================================
-   PRICE RANGES
-========================================================= */
+async function query(text, params = []) {
+  return pool.query(text, params);
+}
+
+// ============================================================
+// PRICE RANGES
+// ============================================================
 
 const PRICE_RANGES = [
-  { id: 1, min: 1000, max: 10000, label: "Rs. 1,000 – 10,000" },
-  { id: 2, min: 10000, max: 20000, label: "Rs. 10,000 – 20,000" },
-  { id: 3, min: 20000, max: 30000, label: "Rs. 20,000 – 30,000" },
-  { id: 4, min: 30000, max: 40000, label: "Rs. 30,000 – 40,000" },
-  { id: 5, min: 40000, max: 50000, label: "Rs. 40,000 – 50,000" },
-  { id: 6, min: 50000, max: 60000, label: "Rs. 50,000 – 60,000" },
-  { id: 7, min: 60000, max: 70000, label: "Rs. 60,000 – 70,000" },
-  { id: 8, min: 70000, max: 80000, label: "Rs. 70,000 – 80,000" },
-  { id: 9, min: 80000, max: 90000, label: "Rs. 80,000 – 90,000" },
-  { id: 10, min: 90000, max: 100000, label: "Rs. 90,000 – 100,000" },
-  { id: 11, min: 100000, max: 200000, label: "Rs. 100,000 – 200,000" },
-  { id: 12, min: 200000, max: 300000, label: "Rs. 200,000 – 300,000" },
-  { id: 13, min: 300000, max: 400000, label: "Rs. 300,000 – 400,000" },
-  { id: 14, min: 400000, max: 500000, label: "Rs. 400,000 – 500,000" },
-  { id: 15, min: 500000, max: 600000, label: "Rs. 500,000 – 600,000" },
-  { id: 16, min: 600000, max: 700000, label: "Rs. 600,000 – 700,000" },
-  { id: 17, min: 700000, max: 800000, label: "Rs. 700,000 – 800,000" },
-  { id: 18, min: 800000, max: 900000, label: "Rs. 800,000 – 900,000" },
-  { id: 19, min: 900000, max: 1000000, label: "Rs. 900,000 – 1,000,000" }
+  [1000, 10000],
+  [10000, 20000],
+  [20000, 30000],
+  [30000, 40000],
+  [40000, 50000],
+  [50000, 60000],
+  [60000, 70000],
+  [70000, 80000],
+  [80000, 90000],
+  [90000, 100000],
+  [100000, 200000],
+  [200000, 300000],
+  [300000, 400000],
+  [400000, 500000],
+  [500000, 600000],
+  [600000, 700000],
+  [700000, 800000],
+  [800000, 900000],
+  [900000, 1000000]
 ];
 
-/* =========================================================
-   HELPERS
-========================================================= */
+function getPriceRangeLabel(price) {
+  const p = Number(price) || 0;
 
-function asyncHandler(fn) {
-  return function (req, res, next) {
-    Promise.resolve(fn(req, res, next)).catch(next);
-  };
+  for (let i = 0; i < PRICE_RANGES.length; i++) {
+    const [min, max] = PRICE_RANGES[i];
+
+    if (i === 0) {
+      if (p >= min && p <= max) {
+        return `Rs. ${min.toLocaleString("en-LK")} – Rs. ${max.toLocaleString("en-LK")}`;
+      }
+    } else {
+      if (p > min && p <= max) {
+        return `Rs. ${min.toLocaleString("en-LK")} – Rs. ${max.toLocaleString("en-LK")}`;
+      }
+    }
+  }
+
+  return "Outside preset ranges";
 }
 
-function normalizeAccount(row) {
-  return {
-    id: Number(row.id),
-    title: row.title || "",
-    game: row.game || "Free Fire",
-    price: Number(row.price || 0),
-    image_url: row.image_url || "",
-    level: row.level || "",
-    fashion: row.fashion || "",
-    evo_guns: row.evo_guns || "",
-    emotes: row.emotes || "",
-    likes: row.likes || "",
-    bind_info: row.bind_info || "",
-    description: row.description || "",
-    featured: Boolean(row.featured),
-    status: row.status || "AVAILABLE",
-    created_at: row.created_at
-  };
-}
+// ============================================================
+// PASSWORD HASHING
+// ============================================================
 
-function hashPassword(password, salt) {
-  return crypto.scryptSync(password, salt, 64).toString("hex");
-}
-
-function createPassword(password) {
+function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
 
-  return {
-    salt,
-    hash: hashPassword(password, salt)
-  };
+  const hash = crypto
+    .pbkdf2Sync(password, salt, 120000, 64, "sha512")
+    .toString("hex");
+
+  return `${salt}:${hash}`;
 }
 
-function verifyPassword(password, salt, storedHash) {
-  if (!salt || !storedHash) return false;
-
+function verifyPassword(password, stored) {
   try {
-    const calculated = hashPassword(password, salt);
+    const parts = String(stored).split(":");
+
+    if (parts.length !== 2) return false;
+
+    const salt = parts[0];
+    const storedHash = parts[1];
+
+    const hash = crypto
+      .pbkdf2Sync(password, salt, 120000, 64, "sha512")
+      .toString("hex");
 
     return crypto.timingSafeEqual(
-      Buffer.from(calculated, "hex"),
+      Buffer.from(hash, "hex"),
       Buffer.from(storedHash, "hex")
     );
   } catch {
@@ -123,105 +126,106 @@ function verifyPassword(password, salt, storedHash) {
   }
 }
 
-/* =========================================================
-   POSTGRES SESSION STORE
-========================================================= */
+// ============================================================
+// POSTGRESQL SESSION STORE
+// ============================================================
 
 class PostgreSQLSessionStore extends session.Store {
+  constructor() {
+    super();
+  }
+
   async get(sid, callback) {
     try {
-      const result = await pool.query(
-        "SELECT sess, expire FROM user_sessions WHERE sid = $1",
+      const result = await query(
+        `
+        SELECT sess
+        FROM user_sessions
+        WHERE sid = $1
+          AND expire > NOW()
+        LIMIT 1
+        `,
         [sid]
       );
 
-      if (result.rows.length === 0) {
+      if (!result.rows.length) {
         return callback(null, null);
       }
 
-      const row = result.rows[0];
-
-      if (new Date(row.expire).getTime() <= Date.now()) {
-        await pool.query(
-          "DELETE FROM user_sessions WHERE sid = $1",
-          [sid]
-        );
-
-        return callback(null, null);
-      }
-
-      callback(null, row.sess);
-    } catch (error) {
-      callback(error);
+      callback(null, result.rows[0].sess);
+    } catch (err) {
+      callback(err);
     }
   }
 
   async set(sid, sess, callback) {
     try {
-      let expire = new Date(
+      const expire = new Date(
         Date.now() + 7 * 24 * 60 * 60 * 1000
       );
 
-      if (sess.cookie && sess.cookie.expires) {
-        expire = new Date(sess.cookie.expires);
-      }
-
-      await pool.query(
-        "INSERT INTO user_sessions (sid, sess, expire) VALUES ($1, $2::jsonb, $3) ON CONFLICT (sid) DO UPDATE SET sess = EXCLUDED.sess, expire = EXCLUDED.expire",
-        [
-          sid,
-          JSON.stringify(sess),
-          expire
-        ]
+      await query(
+        `
+        INSERT INTO user_sessions (sid, sess, expire)
+        VALUES ($1, $2::jsonb, $3)
+        ON CONFLICT (sid)
+        DO UPDATE SET
+          sess = EXCLUDED.sess,
+          expire = EXCLUDED.expire
+        `,
+        [sid, JSON.stringify(sess), expire]
       );
 
       callback(null);
-    } catch (error) {
-      callback(error);
+    } catch (err) {
+      callback(err);
     }
   }
 
   async destroy(sid, callback) {
     try {
-      await pool.query(
-        "DELETE FROM user_sessions WHERE sid = $1",
+      await query(
+        `DELETE FROM user_sessions WHERE sid = $1`,
         [sid]
       );
 
       callback(null);
-    } catch (error) {
-      callback(error);
+    } catch (err) {
+      callback(err);
     }
   }
 
   async touch(sid, sess, callback) {
     try {
-      let expire = new Date(
+      const expire = new Date(
         Date.now() + 7 * 24 * 60 * 60 * 1000
       );
 
-      if (sess.cookie && sess.cookie.expires) {
-        expire = new Date(sess.cookie.expires);
-      }
-
-      await pool.query(
-        "UPDATE user_sessions SET expire = $2 WHERE sid = $1",
-        [sid, expire]
+      await query(
+        `
+        UPDATE user_sessions
+        SET sess = $2::jsonb,
+            expire = $3
+        WHERE sid = $1
+        `,
+        [sid, JSON.stringify(sess), expire]
       );
 
       callback(null);
-    } catch (error) {
-      callback(error);
+    } catch (err) {
+      callback(err);
     }
   }
 }
 
-/* =========================================================
-   SESSION
-========================================================= */
+// ============================================================
+// SESSION
+// ============================================================
 
 app.use(
   session({
+    name: "hasiya_admin_session",
+
     store: new PostgreSQLSessionStore(),
 
     secret:
@@ -230,10 +234,10 @@ app.use(
 
     resave: false,
     saveUninitialized: false,
-    rolling: true,
+
     proxy: true,
 
-    name: "hasiya_admin_session",
+    rolling: true,
 
     cookie: {
       httpOnly: true,
@@ -244,117 +248,145 @@ app.use(
   })
 );
 
-/* =========================================================
-   DATABASE INITIALIZATION
-========================================================= */
+// ============================================================
+// DATABASE INITIALIZATION
+// ============================================================
 
-async function initDatabase() {
+async function initializeDatabase() {
   console.log("Connecting to PostgreSQL...");
 
-  await pool.query("SELECT 1");
+  const connection = await pool.connect();
 
-  console.log("PostgreSQL connection successful.");
+  try {
+    await connection.query("SELECT 1");
 
-  /* ACCOUNTS */
+    console.log("PostgreSQL connection successful.");
 
-  await pool.query(
-    "CREATE TABLE IF NOT EXISTS accounts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, game TEXT NOT NULL DEFAULT 'Free Fire', price NUMERIC(12,2) NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', level TEXT DEFAULT '', fashion TEXT DEFAULT '', evo_guns TEXT DEFAULT '', emotes TEXT DEFAULT '', likes TEXT DEFAULT '', bind_info TEXT DEFAULT '', description TEXT DEFAULT '', featured BOOLEAN NOT NULL DEFAULT FALSE, status TEXT NOT NULL DEFAULT 'AVAILABLE', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
-  );
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS accounts (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        game TEXT DEFAULT '',
+        price NUMERIC(14,2) DEFAULT 0,
+        price_range TEXT DEFAULT '',
+        image_url TEXT DEFAULT '',
+        level TEXT DEFAULT '',
+        fashion TEXT DEFAULT '',
+        evo_guns TEXT DEFAULT '',
+        emotes TEXT DEFAULT '',
+        likes TEXT DEFAULT '',
+        bind_info TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        featured BOOLEAN DEFAULT FALSE,
+        status TEXT DEFAULT 'AVAILABLE',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
 
-  /* SETTINGS */
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT DEFAULT ''
+      )
+    `);
 
-  await pool.query(
-    "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')"
-  );
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS admin_users (
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
 
-  /* ADMIN */
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        sid TEXT PRIMARY KEY,
+        sess JSONB NOT NULL,
+        expire TIMESTAMPTZ NOT NULL
+      )
+    `);
 
-  await pool.query(
-    "CREATE TABLE IF NOT EXISTS admin_users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
-  );
+    await connection.query(`
+      CREATE INDEX IF NOT EXISTS idx_accounts_status
+      ON accounts(status)
+    `);
 
-  /* SESSIONS */
+    await connection.query(`
+      CREATE INDEX IF NOT EXISTS idx_accounts_price
+      ON accounts(price)
+    `);
 
-  await pool.query(
-    "CREATE TABLE IF NOT EXISTS user_sessions (sid TEXT PRIMARY KEY, sess JSONB NOT NULL, expire TIMESTAMPTZ NOT NULL)"
-  );
+    await connection.query(`
+      CREATE INDEX IF NOT EXISTS idx_accounts_featured
+      ON accounts(featured)
+    `);
 
-  /* INDEXES */
+    await connection.query(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_expire
+      ON user_sessions(expire)
+    `);
 
-  await pool.query(
-    "CREATE INDEX IF NOT EXISTS user_sessions_expire_idx ON user_sessions(expire)"
-  );
+    // Default settings
+    const defaultSettings = {
+      store_name: "HASIYA ACCOUNT STORE",
+      slogan: "PREMIUM GAMING ACCOUNTS",
+      secondary_slogan: "TRUSTED • SECURE • FAST",
+      whatsapp_number: ""
+    };
 
-  await pool.query(
-    "CREATE INDEX IF NOT EXISTS accounts_status_idx ON accounts(status)"
-  );
+    for (const [key, value] of Object.entries(defaultSettings)) {
+      await connection.query(
+        `
+        INSERT INTO settings (key, value)
+        VALUES ($1, $2)
+        ON CONFLICT (key) DO NOTHING
+        `,
+        [key, value]
+      );
+    }
 
-  await pool.query(
-    "CREATE INDEX IF NOT EXISTS accounts_price_idx ON accounts(price)"
-  );
-
-  await pool.query(
-    "CREATE INDEX IF NOT EXISTS accounts_featured_idx ON accounts(featured)"
-  );
-
-  /* DEFAULT SETTINGS */
-
-  const defaultSettings = [
-    ["store_name", "HASIYA ACCOUNT STORE"],
-    ["slogan", "Premium Gaming Accounts"],
-    ["secondary_slogan", "Trusted • Secure • Fast"],
-    ["whatsapp_number", ""]
-  ];
-
-  for (const item of defaultSettings) {
-    await pool.query(
-      "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING",
-      item
+    // Admin account
+    const adminResult = await connection.query(
+      `
+      SELECT id
+      FROM admin_users
+      WHERE username = 'admin'
+      LIMIT 1
+      `
     );
+
+    if (!adminResult.rows.length) {
+      const defaultPassword =
+        process.env.ADMIN_PASSWORD || "geenath2009#";
+
+      await connection.query(
+        `
+        INSERT INTO admin_users
+        (username, password_hash)
+        VALUES ($1, $2)
+        `,
+        ["admin", hashPassword(defaultPassword)]
+      );
+
+      console.log("Admin account created.");
+      console.log("Username: admin");
+    } else {
+      console.log("Admin account already exists.");
+    }
+
+    console.log("PostgreSQL database schema initialized.");
+    console.log("Default settings initialized.");
+  } finally {
+    connection.release();
   }
-
-  /* DEFAULT ADMIN */
-
-  const adminResult = await pool.query(
-    "SELECT id FROM admin_users WHERE username = $1 LIMIT 1",
-    ["admin"]
-  );
-
-  if (adminResult.rows.length === 0) {
-    const defaultPassword =
-      process.env.ADMIN_PASSWORD || "geenath2009#";
-
-    const password = createPassword(defaultPassword);
-
-    await pool.query(
-      "INSERT INTO admin_users (username, password_hash, password_salt) VALUES ($1, $2, $3)",
-      [
-        "admin",
-        password.hash,
-        password.salt
-      ]
-    );
-
-    console.log("Admin account created.");
-    console.log("Username: admin");
-  }
-
-  await pool.query(
-    "DELETE FROM user_sessions WHERE expire < NOW()"
-  );
-
-  console.log(
-    "PostgreSQL database schema initialized."
-  );
-
-  console.log(
-    "Default settings initialized."
-  );
 }
 
-/* =========================================================
-   AUTH
-========================================================= */
+// ============================================================
+// AUTH HELPERS
+// ============================================================
 
 function requireAdmin(req, res, next) {
   if (
@@ -365,191 +397,198 @@ function requireAdmin(req, res, next) {
     return next();
   }
 
-  console.log(
-    "Unauthorized request:",
-    req.method,
-    req.originalUrl
-  );
-
   return res.status(401).json({
-    success: false,
-    authenticated: false,
-    error: "Unauthorized"
+    error: "Unauthorized",
+    authenticated: false
   });
 }
 
-/* =========================================================
-   PUBLIC STORE
-========================================================= */
+// ============================================================
+// PUBLIC STORE API
+// ============================================================
 
-app.get(
-  "/api/store",
-  asyncHandler(async (req, res) => {
-    const result = await pool.query(
-      "SELECT key, value FROM settings ORDER BY key"
-    );
+app.get("/api/store", async (req, res) => {
+  try {
+    const settingsResult = await query(`
+      SELECT key, value
+      FROM settings
+    `);
 
     const settings = {};
 
-    for (const row of result.rows) {
+    for (const row of settingsResult.rows) {
       settings[row.key] = row.value;
     }
 
+    const accountsResult = await query(`
+      SELECT COUNT(*)::int AS total
+      FROM accounts
+      WHERE status = 'AVAILABLE'
+    `);
+
     res.json({
-      success: true,
       settings,
-      priceRanges: PRICE_RANGES,
-      price_ranges: PRICE_RANGES
+
+      priceRanges: PRICE_RANGES.map(([min, max]) => ({
+        min,
+        max,
+        label: `Rs. ${min.toLocaleString("en-LK")} – Rs. ${max.toLocaleString("en-LK")}`
+      })),
+
+      price_ranges: PRICE_RANGES.map(([min, max]) => ({
+        min,
+        max,
+        label: `Rs. ${min.toLocaleString("en-LK")} – Rs. ${max.toLocaleString("en-LK")}`
+      })),
+
+      availableCount: accountsResult.rows[0].total
     });
-  })
-);
+  } catch (err) {
+    console.error("STORE API ERROR:", err);
 
-/* =========================================================
-   PUBLIC ACCOUNTS
-========================================================= */
+    res.status(500).json({
+      error: "Failed to load store."
+    });
+  }
+});
 
-app.get(
-  "/api/accounts",
-  asyncHandler(async (req, res) => {
-    const isSold =
-      String(req.query.sold || "") === "1" ||
-      String(req.query.status || "").toUpperCase() === "SOLD";
+// ============================================================
+// PUBLIC ACCOUNTS
+// ============================================================
 
-    const range = Number(req.query.range || 0);
+app.get("/api/accounts", async (req, res) => {
+  try {
+    const range = Number(req.query.range);
+    const sold = String(req.query.sold || "") === "1";
 
-    let sql =
-      "SELECT * FROM accounts WHERE status = $1";
+    const params = [];
+    const conditions = [];
 
-    const params = [
-      isSold ? "SOLD" : "AVAILABLE"
-    ];
+    if (sold) {
+      conditions.push(`status = 'SOLD'`);
+    } else {
+      conditions.push(`status = 'AVAILABLE'`);
+    }
 
-    if (!isSold && range > 0) {
-      const selectedRange = PRICE_RANGES.find(
-        item => item.id === range
-      );
+    if (
+      Number.isInteger(range) &&
+      range >= 0 &&
+      range < PRICE_RANGES.length
+    ) {
+      const [min, max] = PRICE_RANGES[range];
 
-      if (selectedRange) {
-        sql +=
-          " AND price >= $2 AND price <= $3";
+      if (range === 0) {
+        params.push(min, max);
 
-        params.push(
-          selectedRange.min,
-          selectedRange.max
+        conditions.push(
+          `(price >= $${params.length - 1} AND price <= $${params.length})`
+        );
+      } else {
+        params.push(min, max);
+
+        conditions.push(
+          `(price > $${params.length - 1} AND price <= $${params.length})`
         );
       }
     }
 
-    if (isSold) {
-      sql +=
-        " ORDER BY created_at DESC, id DESC";
-    } else {
-      sql +=
-        " ORDER BY featured DESC, created_at DESC, id DESC";
-    }
+    const sql = `
+      SELECT
+        id,
+        title,
+        game,
+        price,
+        price_range,
+        image_url,
+        level,
+        fashion,
+        evo_guns,
+        emotes,
+        likes,
+        bind_info,
+        description,
+        featured,
+        status,
+        created_at,
+        updated_at
+      FROM accounts
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY featured DESC, created_at DESC
+    `;
 
-    const result = await pool.query(
-      sql,
-      params
-    );
+    const result = await query(sql, params);
 
-    const accounts =
-      result.rows.map(normalizeAccount);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("PUBLIC ACCOUNTS ERROR:", err);
 
-    res.json({
-      success: true,
-      accounts,
-      data: accounts,
-      total: accounts.length
+    res.status(500).json({
+      error: "Failed to load accounts."
     });
-  })
-);
+  }
+});
 
-/* =========================================================
-   ADMIN LOGIN
-========================================================= */
+// ============================================================
+// ADMIN LOGIN
+// ============================================================
 
-app.post(
-  "/api/admin/login",
-  asyncHandler(async (req, res) => {
-    const username = String(
-      req.body.username || ""
-    ).trim();
-
-    const password = String(
-      req.body.password || ""
-    );
+app.post("/api/admin/login", async (req, res) => {
+  try {
+    const username = String(req.body.username || "").trim();
+    const password = String(req.body.password || "");
 
     if (!username || !password) {
       return res.status(400).json({
-        success: false,
-        authenticated: false,
-        error:
-          "Username and password are required."
+        error: "Username and password are required."
       });
     }
 
-    const result = await pool.query(
-      "SELECT * FROM admin_users WHERE username = $1 LIMIT 1",
+    const result = await query(
+      `
+      SELECT id, username, password_hash
+      FROM admin_users
+      WHERE username = $1
+      LIMIT 1
+      `,
       [username]
     );
 
-    if (result.rows.length === 0) {
+    if (!result.rows.length) {
       return res.status(401).json({
-        success: false,
-        authenticated: false,
-        error:
-          "Invalid username or password."
+        error: "Invalid username or password."
       });
     }
 
     const admin = result.rows[0];
 
-    const valid = verifyPassword(
-      password,
-      admin.password_salt,
-      admin.password_hash
-    );
-
-    if (!valid) {
+    if (!verifyPassword(password, admin.password_hash)) {
       return res.status(401).json({
-        success: false,
-        authenticated: false,
-        error:
-          "Invalid username or password."
+        error: "Invalid username or password."
       });
     }
 
     await new Promise((resolve, reject) => {
-      req.session.regenerate(error => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
+      req.session.regenerate(err => {
+        if (err) reject(err);
+        else resolve();
       });
     });
 
     req.session.admin = {
       authenticated: true,
-      id: Number(admin.id),
-      username: admin.username,
-      loginTime: Date.now()
+      id: admin.id,
+      username: admin.username
     };
 
     await new Promise((resolve, reject) => {
-      req.session.save(error => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
+      req.session.save(err => {
+        if (err) reject(err);
+        else resolve();
       });
     });
 
     console.log(
-      "Admin login successful:",
-      username
+      `Admin login successful: ${admin.username}`
     );
 
     res.json({
@@ -558,723 +597,733 @@ app.post(
       loggedIn: true,
       username: admin.username
     });
-  })
-);
+  } catch (err) {
+    console.error("LOGIN ERROR:", err);
 
-/* =========================================================
-   ADMIN ME
-========================================================= */
-
-app.get(
-  "/api/admin/me",
-  (req, res) => {
-    const authenticated =
-      Boolean(
-        req.session &&
-        req.session.admin &&
-        req.session.admin.authenticated === true
-      );
-
-    res.json({
-      success: true,
-      authenticated,
-      loggedIn: authenticated,
-      admin: authenticated
-        ? req.session.admin
-        : null
+    res.status(500).json({
+      error: "Login failed."
     });
   }
-);
+});
 
-/* =========================================================
-   ADMIN LOGOUT
-========================================================= */
+// ============================================================
+// ADMIN SESSION CHECK
+// ============================================================
 
-app.post(
-  "/api/admin/logout",
-  asyncHandler(async (req, res) => {
-    if (req.session) {
-      await new Promise(resolve => {
-        req.session.destroy(() => {
-          resolve();
-        });
+app.get("/api/admin/me", (req, res) => {
+  const authenticated =
+    !!(
+      req.session &&
+      req.session.admin &&
+      req.session.admin.authenticated === true
+    );
+
+  res.json({
+    authenticated,
+    loggedIn: authenticated,
+    username:
+      authenticated && req.session.admin.username
+        ? req.session.admin.username
+        : null
+  });
+});
+
+// ============================================================
+// ADMIN LOGOUT
+// ============================================================
+
+app.post("/api/admin/logout", (req, res) => {
+  if (!req.session) {
+    return res.json({
+      success: true
+    });
+  }
+
+  req.session.destroy(err => {
+    if (err) {
+      console.error("LOGOUT ERROR:", err);
+
+      return res.status(500).json({
+        error: "Logout failed."
       });
     }
 
-    res.clearCookie(
-      "hasiya_admin_session",
-      {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax"
-      }
-    );
+    res.clearCookie("hasiya_admin_session", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax"
+    });
 
     res.json({
-      success: true,
-      authenticated: false
+      success: true
     });
-  })
-);
+  });
+});
 
-/* =========================================================
-   DASHBOARD
-========================================================= */
+// ============================================================
+// ADMIN DASHBOARD
+// ============================================================
 
 app.get(
   "/api/admin/dashboard",
   requireAdmin,
-  asyncHandler(async (req, res) => {
-    const result = await pool.query(
-      "SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status = 'AVAILABLE')::int AS available, COUNT(*) FILTER (WHERE status = 'SOLD')::int AS sold, COUNT(*) FILTER (WHERE featured = TRUE)::int AS featured, COALESCE(SUM(price), 0) AS total_value FROM accounts"
-    );
+  async (req, res) => {
+    try {
+      const result = await query(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (
+            WHERE status = 'AVAILABLE'
+          )::int AS available,
+          COUNT(*) FILTER (
+            WHERE status = 'SOLD'
+          )::int AS sold,
+          COUNT(*) FILTER (
+            WHERE featured = TRUE
+          )::int AS featured,
+          COALESCE(
+            SUM(price) FILTER (
+              WHERE status = 'AVAILABLE'
+            ),
+            0
+          ) AS total_listed_value
+        FROM accounts
+      `);
 
-    const row = result.rows[0];
+      const row = result.rows[0];
 
-    const dashboard = {
-      total: Number(row.total || 0),
-      available: Number(row.available || 0),
-      sold: Number(row.sold || 0),
-      featured: Number(row.featured || 0),
-      totalListedValue:
-        Number(row.total_value || 0)
-    };
+      const stats = {
+        total: Number(row.total || 0),
+        available: Number(row.available || 0),
+        sold: Number(row.sold || 0),
+        featured: Number(row.featured || 0),
+        totalListedValue: Number(
+          row.total_listed_value || 0
+        )
+      };
 
-    res.json({
-      success: true,
-      ...dashboard,
-      dashboard
-    });
-  })
+      res.json({
+        ...stats,
+        stats
+      });
+    } catch (err) {
+      console.error("DASHBOARD ERROR:", err);
+
+      res.status(500).json({
+        error: "Failed to load dashboard."
+      });
+    }
+  }
 );
 
-/* =========================================================
-   ADMIN ACCOUNT LIST
-========================================================= */
+// ============================================================
+// ADMIN ACCOUNTS LIST
+// ============================================================
 
 app.get(
   "/api/admin/accounts",
   requireAdmin,
-  asyncHandler(async (req, res) => {
-    const result = await pool.query(
-      "SELECT * FROM accounts ORDER BY created_at DESC, id DESC"
-    );
+  async (req, res) => {
+    try {
+      const result = await query(`
+        SELECT
+          id,
+          title,
+          game,
+          price,
+          price_range,
+          image_url,
+          level,
+          fashion,
+          evo_guns,
+          emotes,
+          likes,
+          bind_info,
+          description,
+          featured,
+          status,
+          created_at,
+          updated_at
+        FROM accounts
+        ORDER BY created_at DESC
+      `);
 
-    const accounts =
-      result.rows.map(normalizeAccount);
+      res.json(result.rows);
+    } catch (err) {
+      console.error("ADMIN ACCOUNTS ERROR:", err);
 
-    res.json({
-      success: true,
-      accounts,
-      data: accounts
-    });
-  })
+      res.status(500).json({
+        error: "Failed to load accounts."
+      });
+    }
+  }
 );
 
-/* =========================================================
-   ACCOUNT PAYLOAD
-========================================================= */
-
-function accountPayload(body) {
-  const price = Number(body.price || 0);
-
-  return {
-    title: String(
-      body.title || ""
-    ).trim(),
-
-    game: String(
-      body.game || "Free Fire"
-    ).trim(),
-
-    price,
-
-    image_url: String(
-      body.image_url || ""
-    ).trim(),
-
-    level: String(
-      body.level || ""
-    ).trim(),
-
-    fashion: String(
-      body.fashion || ""
-    ).trim(),
-
-    evo_guns: String(
-      body.evo_guns || ""
-    ).trim(),
-
-    emotes: String(
-      body.emotes || ""
-    ).trim(),
-
-    likes: String(
-      body.likes || ""
-    ).trim(),
-
-    bind_info: String(
-      body.bind_info || ""
-    ).trim(),
-
-    description: String(
-      body.description || ""
-    ).trim(),
-
-    featured:
-      body.featured === true ||
-      body.featured === "true" ||
-      body.featured === "1",
-
-    status:
-      String(
-        body.status || "AVAILABLE"
-      ).toUpperCase() === "SOLD"
-        ? "SOLD"
-        : "AVAILABLE"
-  };
-}
-
-/* =========================================================
-   ADD ACCOUNT
-========================================================= */
+// ============================================================
+// ADMIN CREATE ACCOUNT
+// ============================================================
 
 app.post(
   "/api/admin/accounts",
   requireAdmin,
-  asyncHandler(async (req, res) => {
-    console.log(
-      "ADD ACCOUNT REQUEST"
-    );
+  async (req, res) => {
+    try {
+      const body = req.body || {};
 
-    const a = accountPayload(req.body);
+      const title = String(body.title || "").trim();
 
-    if (!a.title) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "Account title is required."
+      if (!title) {
+        return res.status(400).json({
+          error: "Account title is required."
+        });
+      }
+
+      const price = Number(body.price || 0);
+
+      if (!Number.isFinite(price) || price < 0) {
+        return res.status(400).json({
+          error: "Invalid price."
+        });
+      }
+
+      const status =
+        String(body.status || "AVAILABLE")
+          .toUpperCase() === "SOLD"
+          ? "SOLD"
+          : "AVAILABLE";
+
+      const featured =
+        body.featured === true ||
+        body.featured === "1" ||
+        body.featured === 1;
+
+      const priceRange = getPriceRangeLabel(price);
+
+      const result = await query(
+        `
+        INSERT INTO accounts (
+          title,
+          game,
+          price,
+          price_range,
+          image_url,
+          level,
+          fashion,
+          evo_guns,
+          emotes,
+          likes,
+          bind_info,
+          description,
+          featured,
+          status
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+          $11,$12,$13,$14
+        )
+        RETURNING *
+        `,
+        [
+          title,
+          String(body.game || ""),
+          price,
+          priceRange,
+          String(body.image_url || ""),
+          String(body.level || ""),
+          String(body.fashion || ""),
+          String(body.evo_guns || ""),
+          String(body.emotes || ""),
+          String(body.likes || ""),
+          String(body.bind_info || ""),
+          String(body.description || ""),
+          featured,
+          status
+        ]
+      );
+
+      console.log(
+        `Account created: ${title} (#${result.rows[0].id})`
+      );
+
+      res.status(201).json({
+        success: true,
+        account: result.rows[0]
+      });
+    } catch (err) {
+      console.error("CREATE ACCOUNT ERROR:", err);
+
+      res.status(500).json({
+        error: "Failed to create account."
       });
     }
-
-    if (
-      !Number.isFinite(a.price) ||
-      a.price < 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid price."
-      });
-    }
-
-    const result = await pool.query(
-      "INSERT INTO accounts (title, game, price, image_url, level, fashion, evo_guns, emotes, likes, bind_info, description, featured, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *",
-      [
-        a.title,
-        a.game,
-        a.price,
-        a.image_url,
-        a.level,
-        a.fashion,
-        a.evo_guns,
-        a.emotes,
-        a.likes,
-        a.bind_info,
-        a.description,
-        a.featured,
-        a.status
-      ]
-    );
-
-    console.log(
-      "ACCOUNT CREATED:",
-      result.rows[0].id
-    );
-
-    res.json({
-      success: true,
-      account:
-        normalizeAccount(result.rows[0])
-    });
-  })
+  }
 );
 
-/* =========================================================
-   EDIT ACCOUNT
-========================================================= */
+// ============================================================
+// ADMIN UPDATE ACCOUNT
+// ============================================================
 
 app.put(
   "/api/admin/accounts/:id",
   requireAdmin,
-  asyncHandler(async (req, res) => {
-    const id = Number(req.params.id);
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
 
-    if (!Number.isInteger(id)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid account ID."
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({
+          error: "Invalid account ID."
+        });
+      }
+
+      const body = req.body || {};
+
+      const title = String(body.title || "").trim();
+
+      if (!title) {
+        return res.status(400).json({
+          error: "Account title is required."
+        });
+      }
+
+      const price = Number(body.price || 0);
+
+      if (!Number.isFinite(price) || price < 0) {
+        return res.status(400).json({
+          error: "Invalid price."
+        });
+      }
+
+      const status =
+        String(body.status || "AVAILABLE")
+          .toUpperCase() === "SOLD"
+          ? "SOLD"
+          : "AVAILABLE";
+
+      const featured =
+        body.featured === true ||
+        body.featured === "1" ||
+        body.featured === 1;
+
+      const priceRange = getPriceRangeLabel(price);
+
+      const result = await query(
+        `
+        UPDATE accounts
+        SET
+          title = $1,
+          game = $2,
+          price = $3,
+          price_range = $4,
+          image_url = $5,
+          level = $6,
+          fashion = $7,
+          evo_guns = $8,
+          emotes = $9,
+          likes = $10,
+          bind_info = $11,
+          description = $12,
+          featured = $13,
+          status = $14,
+          updated_at = NOW()
+        WHERE id = $15
+        RETURNING *
+        `,
+        [
+          title,
+          String(body.game || ""),
+          price,
+          priceRange,
+          String(body.image_url || ""),
+          String(body.level || ""),
+          String(body.fashion || ""),
+          String(body.evo_guns || ""),
+          String(body.emotes || ""),
+          String(body.likes || ""),
+          String(body.bind_info || ""),
+          String(body.description || ""),
+          featured,
+          status,
+          id
+        ]
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({
+          error: "Account not found."
+        });
+      }
+
+      res.json({
+        success: true,
+        account: result.rows[0]
+      });
+    } catch (err) {
+      console.error("UPDATE ACCOUNT ERROR:", err);
+
+      res.status(500).json({
+        error: "Failed to update account."
       });
     }
-
-    const a = accountPayload(req.body);
-
-    if (!a.title) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "Account title is required."
-      });
-    }
-
-    if (
-      !Number.isFinite(a.price) ||
-      a.price < 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid price."
-      });
-    }
-
-    const result = await pool.query(
-      "UPDATE accounts SET title=$1, game=$2, price=$3, image_url=$4, level=$5, fashion=$6, evo_guns=$7, emotes=$8, likes=$9, bind_info=$10, description=$11, featured=$12, status=$13 WHERE id=$14 RETURNING *",
-      [
-        a.title,
-        a.game,
-        a.price,
-        a.image_url,
-        a.level,
-        a.fashion,
-        a.evo_guns,
-        a.emotes,
-        a.likes,
-        a.bind_info,
-        a.description,
-        a.featured,
-        a.status,
-        id
-      ]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Account not found."
-      });
-    }
-
-    res.json({
-      success: true,
-      account:
-        normalizeAccount(result.rows[0])
-    });
-  })
+  }
 );
 
-/* =========================================================
-   STATUS
-========================================================= */
-
-app.patch(
-  "/api/admin/accounts/:id/status",
-  requireAdmin,
-  asyncHandler(async (req, res) => {
-    const id = Number(req.params.id);
-
-    if (!Number.isInteger(id)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid account ID."
-      });
-    }
-
-    const status =
-      String(
-        req.body.status || ""
-      ).toUpperCase() === "SOLD"
-        ? "SOLD"
-        : "AVAILABLE";
-
-    const result = await pool.query(
-      "UPDATE accounts SET status=$1 WHERE id=$2 RETURNING *",
-      [status, id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Account not found."
-      });
-    }
-
-    res.json({
-      success: true,
-      account:
-        normalizeAccount(result.rows[0])
-    });
-  })
-);
-
-/* =========================================================
-   DELETE
-========================================================= */
+// ============================================================
+// ADMIN DELETE ACCOUNT
+// ============================================================
 
 app.delete(
   "/api/admin/accounts/:id",
   requireAdmin,
-  asyncHandler(async (req, res) => {
-    const id = Number(req.params.id);
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
 
-    if (!Number.isInteger(id)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid account ID."
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({
+          error: "Invalid account ID."
+        });
+      }
+
+      const result = await query(
+        `
+        DELETE FROM accounts
+        WHERE id = $1
+        RETURNING id
+        `,
+        [id]
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({
+          error: "Account not found."
+        });
+      }
+
+      res.json({
+        success: true
+      });
+    } catch (err) {
+      console.error("DELETE ACCOUNT ERROR:", err);
+
+      res.status(500).json({
+        error: "Failed to delete account."
       });
     }
-
-    const result = await pool.query(
-      "DELETE FROM accounts WHERE id=$1 RETURNING id",
-      [id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Account not found."
-      });
-    }
-
-    res.json({
-      success: true,
-      deleted: true
-    });
-  })
+  }
 );
 
-/* =========================================================
-   SETTINGS
-========================================================= */
+// ============================================================
+// ADMIN CHANGE STATUS
+// ============================================================
+
+app.patch(
+  "/api/admin/accounts/:id/status",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({
+          error: "Invalid account ID."
+        });
+      }
+
+      const status =
+        String(req.body.status || "")
+          .toUpperCase();
+
+      if (!["AVAILABLE", "SOLD"].includes(status)) {
+        return res.status(400).json({
+          error: "Invalid status."
+        });
+      }
+
+      const result = await query(
+        `
+        UPDATE accounts
+        SET
+          status = $1,
+          updated_at = NOW()
+        WHERE id = $2
+        RETURNING *
+        `,
+        [status, id]
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({
+          error: "Account not found."
+        });
+      }
+
+      res.json({
+        success: true,
+        account: result.rows[0]
+      });
+    } catch (err) {
+      console.error("STATUS UPDATE ERROR:", err);
+
+      res.status(500).json({
+        error: "Failed to update status."
+      });
+    }
+  }
+);
+
+// ============================================================
+// ADMIN SETTINGS
+// ============================================================
 
 app.put(
   "/api/admin/settings",
   requireAdmin,
-  asyncHandler(async (req, res) => {
-    const values = {
-      whatsapp_number:
-        String(
-          req.body.whatsapp_number || ""
-        ).trim(),
+  async (req, res) => {
+    try {
+      const body = req.body || {};
 
-      store_name:
-        String(
-          req.body.store_name || ""
-        ).trim(),
+      const allowed = [
+        "whatsapp_number",
+        "store_name",
+        "slogan",
+        "secondary_slogan"
+      ];
 
-      slogan:
-        String(
-          req.body.slogan || ""
-        ).trim(),
+      for (const key of allowed) {
+        if (body[key] === undefined) continue;
 
-      secondary_slogan:
-        String(
-          req.body.secondary_slogan || ""
-        ).trim()
-    };
+        await query(
+          `
+          INSERT INTO settings (key, value)
+          VALUES ($1, $2)
+          ON CONFLICT (key)
+          DO UPDATE SET value = EXCLUDED.value
+          `,
+          [key, String(body[key] || "")]
+        );
+      }
 
-    for (const [key, value] of Object.entries(values)) {
-      await pool.query(
-        "INSERT INTO settings (key,value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
-        [key, value]
-      );
+      res.json({
+        success: true
+      });
+    } catch (err) {
+      console.error("SETTINGS ERROR:", err);
+
+      res.status(500).json({
+        error: "Failed to save settings."
+      });
     }
-
-    res.json({
-      success: true
-    });
-  })
+  }
 );
 
-/* =========================================================
-   CHANGE PASSWORD
-========================================================= */
+// ============================================================
+// ADMIN CHANGE PASSWORD
+// ============================================================
 
 app.post(
   "/api/admin/password",
   requireAdmin,
-  asyncHandler(async (req, res) => {
-    const currentPassword =
-      String(
+  async (req, res) => {
+    try {
+      const currentPassword = String(
         req.body.currentPassword || ""
       );
 
-    const newPassword =
-      String(
+      const newPassword = String(
         req.body.newPassword || ""
       );
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "New password must be at least 6 characters."
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({
+          error: "Current and new password are required."
+        });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          error: "New password must be at least 6 characters."
+        });
+      }
+
+      const adminId = req.session.admin.id;
+
+      const result = await query(
+        `
+        SELECT password_hash
+        FROM admin_users
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [adminId]
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({
+          error: "Admin account not found."
+        });
+      }
+
+      if (
+        !verifyPassword(
+          currentPassword,
+          result.rows[0].password_hash
+        )
+      ) {
+        return res.status(401).json({
+          error: "Current password is incorrect."
+        });
+      }
+
+      await query(
+        `
+        UPDATE admin_users
+        SET
+          password_hash = $1,
+          updated_at = NOW()
+        WHERE id = $2
+        `,
+        [hashPassword(newPassword), adminId]
+      );
+
+      res.json({
+        success: true
+      });
+    } catch (err) {
+      console.error("PASSWORD ERROR:", err);
+
+      res.status(500).json({
+        error: "Failed to change password."
       });
     }
-
-    const adminId =
-      req.session.admin.id;
-
-    const result = await pool.query(
-      "SELECT * FROM admin_users WHERE id=$1 LIMIT 1",
-      [adminId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error:
-          "Admin account not found."
-      });
-    }
-
-    const admin = result.rows[0];
-
-    const valid = verifyPassword(
-      currentPassword,
-      admin.password_salt,
-      admin.password_hash
-    );
-
-    if (!valid) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "Current password is incorrect."
-      });
-    }
-
-    const password =
-      createPassword(newPassword);
-
-    await pool.query(
-      "UPDATE admin_users SET password_hash=$1, password_salt=$2 WHERE id=$3",
-      [
-        password.hash,
-        password.salt,
-        adminId
-      ]
-    );
-
-    res.json({
-      success: true
-    });
-  })
+  }
 );
 
-/* =========================================================
-   HEALTH
-========================================================= */
+// ============================================================
+// HEALTH
+// ============================================================
 
-app.get(
-  "/health",
-  asyncHandler(async (req, res) => {
-    await pool.query("SELECT 1");
+app.get("/health", async (req, res) => {
+  try {
+    await query("SELECT 1");
 
     res.json({
       status: "ok",
-      database: "postgresql"
+      database: "PostgreSQL",
+      time: new Date().toISOString()
     });
-  })
-);
+  } catch {
+    res.status(500).json({
+      status: "error",
+      database: "PostgreSQL"
+    });
+  }
+});
 
-/* =========================================================
-   WEBSITE ROUTES
-========================================================= */
+// ============================================================
+// STATIC FRONTEND
+// ============================================================
 
-/*
-   Explicit routes are intentionally BEFORE static.
-*/
+console.log("Project root:", ROOT);
+console.log("Public directory:", PUBLIC_DIR);
 
+app.use(express.static(PUBLIC_DIR));
+
+// Main website
 app.get("/", (req, res) => {
-  const file = path.join(
-    ROOT,
-    "index.html"
-  );
+  res.sendFile(path.join(PUBLIC_DIR, "index.html"), err => {
+    if (err) {
+      console.error("index.html error:", err);
 
-  if (!fs.existsSync(file)) {
-    return res.status(404).send(
-      "index.html not found in project root."
-    );
-  }
-
-  res.sendFile(file);
+      if (!res.headersSent) {
+        res.status(404).send(
+          "index.html not found in public folder."
+        );
+      }
+    }
+  });
 });
 
-app.get("/index.html", (req, res) => {
-  res.sendFile(
-    path.join(ROOT, "index.html")
-  );
-});
-
+// Admin website
 app.get("/admin", (req, res) => {
-  const file = path.join(
-    ROOT,
-    "admin.html"
-  );
+  res.sendFile(path.join(PUBLIC_DIR, "admin.html"), err => {
+    if (err) {
+      console.error("admin.html error:", err);
 
-  if (!fs.existsSync(file)) {
-    return res.status(404).send(
-      "admin.html not found in project root."
-    );
+      if (!res.headersSent) {
+        res.status(404).send(
+          "admin.html not found in public folder."
+        );
+      }
+    }
+  });
+});
+
+// Also support /admin/
+app.get("/admin/", (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, "admin.html"), err => {
+    if (err) {
+      console.error("admin.html error:", err);
+
+      if (!res.headersSent) {
+        res.status(404).send(
+          "admin.html not found in public folder."
+        );
+      }
+    }
+  });
+});
+
+// ============================================================
+// 404
+// ============================================================
+
+app.use((req, res) => {
+  if (req.path.startsWith("/api/")) {
+    return res.status(404).json({
+      error: "API endpoint not found."
+    });
   }
 
-  res.sendFile(file);
+  res.status(404).send("Page not found.");
 });
 
-app.get("/admin.html", (req, res) => {
-  res.sendFile(
-    path.join(ROOT, "admin.html")
-  );
-});
-
-/* =========================================================
-   STATIC FILES
-========================================================= */
-
-app.use(
-  express.static(ROOT, {
-    index: false
-  })
-);
-
-/* =========================================================
-   ERROR HANDLER
-========================================================= */
+// ============================================================
+// ERROR HANDLER
+// ============================================================
 
 app.use((err, req, res, next) => {
-  console.error(
-    "================================="
-  );
-
-  console.error(
-    "SERVER ERROR"
-  );
-
-  console.error(
-    "METHOD:",
-    req.method
-  );
-
-  console.error(
-    "URL:",
-    req.originalUrl
-  );
-
-  console.error(
-    "MESSAGE:",
-    err.message
-  );
-
-  console.error(
-    "STACK:",
-    err.stack
-  );
-
-  console.error(
-    "================================="
-  );
+  console.error("SERVER ERROR:", err);
 
   if (res.headersSent) {
     return next(err);
   }
 
   res.status(500).json({
-    success: false,
-    error:
-      err.message ||
-      "Internal server error."
+    error: "Internal server error."
   });
 });
 
-/* =========================================================
-   START
-========================================================= */
+// ============================================================
+// START SERVER
+// ============================================================
 
 async function start() {
   try {
-    console.log(
-      "================================="
-    );
+    await initializeDatabase();
 
-    console.log(
-      "HASIYA ACCOUNT STORE STARTING..."
-    );
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(
+        `HASIYA ACCOUNT STORE running on port ${PORT}`
+      );
 
-    console.log(
-      "Project root:",
-      ROOT
-    );
-
-    console.log(
-      "index.html:",
-      fs.existsSync(
-        path.join(ROOT, "index.html")
-      )
-    );
-
-    console.log(
-      "admin.html:",
-      fs.existsSync(
-        path.join(ROOT, "admin.html")
-      )
-    );
-
-    await initDatabase();
-
-    app.listen(
-      PORT,
-      "0.0.0.0",
-      () => {
-        console.log(
-          "================================="
-        );
-
-        console.log(
-          "HASIYA ACCOUNT STORE"
-        );
-
-        console.log(
-          "Server running on port:",
-          PORT
-        );
-
-        console.log(
-          "Database: PostgreSQL"
-        );
-
-        console.log(
-          "Main page: /"
-        );
-
-        console.log(
-          "Admin page: /admin"
-        );
-
-        console.log(
-          "Persistent sessions: ENABLED"
-        );
-
-        console.log(
-          "================================="
-        );
-      }
-    );
-  } catch (error) {
-    console.error(
-      "DATABASE STARTUP FAILED:"
-    );
-
-    console.error(error);
-
+      console.log("Database: PostgreSQL");
+      console.log("Frontend: /public");
+      console.log("Admin session store: PostgreSQL");
+      console.log("Admin session/proxy configuration enabled.");
+    });
+  } catch (err) {
+    console.error("STARTUP FAILED:", err);
     process.exit(1);
   }
 }
