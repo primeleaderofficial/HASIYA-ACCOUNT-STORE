@@ -1,7 +1,7 @@
 {
-  "name": "hasiya-account-store-v1",
-  "version": "1.0.2",
-  "description": "HASIYA ACCOUNT STORE - Sri Lankan gaming account marketplace",
+  "name": "hasiya-account-store",
+  "version": "1.0.0",
+  "description": "HASIYA ACCOUNT STORE",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
