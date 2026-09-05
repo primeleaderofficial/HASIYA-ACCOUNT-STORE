@@ -263,23 +263,43 @@ function driveToImageUrl(input) {
     return "";
   }
 
+  let fileId = "";
+
   const patterns = [
-    /\/file\/d\/([^/]+)/,
-    /[?&]id=([^&]+)/,
-    /\/open\?id=([^&]+)/
+    /\/file\/d\/([a-zA-Z0-9_-]+)/,
+    /[?&]id=([a-zA-Z0-9_-]+)/,
+    /\/open\?id=([a-zA-Z0-9_-]+)/
   ];
 
   for (const re of patterns) {
     const match = url.match(re);
 
     if (match) {
-      return (
-        "https://drive.google.com/uc" +
-        "?export=view&id=" +
-        encodeURIComponent(match[1])
-      );
+      fileId = match[1];
+      break;
     }
   }
+
+  /*
+    GOOGLE DRIVE IMAGE
+
+    Using thumbnail endpoint instead of
+    uc?export=view because it is more reliable
+    for <img> elements.
+  */
+
+  if (fileId) {
+    return (
+      "https://drive.google.com/thumbnail" +
+      "?id=" +
+      encodeURIComponent(fileId) +
+      "&sz=w2000"
+    );
+  }
+
+  /*
+    NORMAL EXTERNAL IMAGE URL
+  */
 
   if (/^https?:\/\//i.test(url)) {
     return url;
