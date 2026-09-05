@@ -8,6 +8,14 @@ const path = require("path");
 
 const app = express();
 
+/*
+========================================================
+RENDER / PROXY SESSION FIX
+========================================================
+*/
+
+app.set("trust proxy", 1);
+
 const PORT = Number(process.env.PORT || 3000);
 
 const DATA_DIR = path.join(__dirname, "data");
@@ -33,11 +41,6 @@ function openDatabase() {
     console.log("SQLite database opened.");
   } catch (err) {
     console.error("Database open failed:", err.message);
-
-    /*
-      If the existing database is invalid,
-      keep a backup and create a fresh database.
-    */
 
     const backup = path.join(
       DATA_DIR,
@@ -88,13 +91,8 @@ function sqlGet(sql, params = []) {
   return db.prepare(sql).get(...params);
 }
 
-/*
-better-sqlite3 writes directly to the database.
-No export/save operation is required.
-*/
-
 function saveDb() {
-  // Intentionally empty.
+  // better-sqlite3 writes directly to the database.
 }
 
 /*
@@ -299,81 +297,25 @@ PRICE RANGE
 function priceRange(price) {
   const p = Number(price);
 
-  if (p >= 1000 && p <= 10000) {
-    return "1";
-  }
-
-  if (p > 10000 && p <= 20000) {
-    return "2";
-  }
-
-  if (p > 20000 && p <= 30000) {
-    return "3";
-  }
-
-  if (p > 30000 && p <= 40000) {
-    return "4";
-  }
-
-  if (p > 40000 && p <= 50000) {
-    return "5";
-  }
-
-  if (p > 50000 && p <= 60000) {
-    return "6";
-  }
-
-  if (p > 60000 && p <= 70000) {
-    return "7";
-  }
-
-  if (p > 70000 && p <= 80000) {
-    return "8";
-  }
-
-  if (p > 80000 && p <= 90000) {
-    return "9";
-  }
-
-  if (p > 90000 && p <= 100000) {
-    return "10";
-  }
-
-  if (p > 100000 && p <= 200000) {
-    return "11";
-  }
-
-  if (p > 200000 && p <= 300000) {
-    return "12";
-  }
-
-  if (p > 300000 && p <= 400000) {
-    return "13";
-  }
-
-  if (p > 400000 && p <= 500000) {
-    return "14";
-  }
-
-  if (p > 500000 && p <= 600000) {
-    return "15";
-  }
-
-  if (p > 600000 && p <= 700000) {
-    return "16";
-  }
-
-  if (p > 700000 && p <= 800000) {
-    return "17";
-  }
-
-  if (p > 800000 && p <= 900000) {
-    return "18";
-  }
-
-  if (p > 900000 && p <= 1000000) {
-    return "19";
-  }
+  if (p >= 1000 && p <= 10000) return "1";
+  if (p > 10000 && p <= 20000) return "2";
+  if (p > 20000 && p <= 30000) return "3";
+  if (p > 30000 && p <= 40000) return "4";
+  if (p > 40000 && p <= 50000) return "5";
+  if (p > 50000 && p <= 60000) return "6";
+  if (p > 60000 && p <= 70000) return "7";
+  if (p > 70000 && p <= 80000) return "8";
+  if (p > 80000 && p <= 90000) return "9";
+  if (p > 90000 && p <= 100000) return "10";
+  if (p > 100000 && p <= 200000) return "11";
+  if (p > 200000 && p <= 300000) return "12";
+  if (p > 300000 && p <= 400000) return "13";
+  if (p > 400000 && p <= 500000) return "14";
+  if (p > 500000 && p <= 600000) return "15";
+  if (p > 600000 && p <= 700000) return "16";
+  if (p > 700000 && p <= 800000) return "17";
+  if (p > 800000 && p <= 900000) return "18";
+  if (p > 900000 && p <= 1000000) return "19";
 
   return "all";
 }
@@ -465,10 +407,6 @@ if (!existingAdmin) {
 
   console.log("Admin account created.");
 } else {
-  /*
-    Keep the existing admin account.
-    Do NOT reset the password on every restart.
-  */
   console.log("Admin account already exists.");
 }
 
@@ -495,6 +433,12 @@ app.use(
     extended: false
   })
 );
+
+/*
+========================================================
+SESSION
+========================================================
+*/
 
 app.use(
   session({
@@ -650,7 +594,6 @@ app.get(
         8: [70000, 80000],
         9: [80000, 90000],
         10: [90000, 100000],
-
         11: [100000, 200000],
         12: [200000, 300000],
         13: [300000, 400000],
@@ -723,9 +666,32 @@ app.post(
 
     req.session.admin = true;
 
-    res.json({
-      ok: true
-    });
+    /*
+      Explicitly save the session before responding.
+      This helps prevent Render/proxy timing issues.
+    */
+
+    req.session.save(
+      err => {
+        if (err) {
+          console.error(
+            "Session save error:",
+            err
+          );
+
+          return res
+            .status(500)
+            .json({
+              error:
+                "Could not create admin session"
+            });
+        }
+
+        res.json({
+          ok: true
+        });
+      }
+    );
   }
 );
 
@@ -840,13 +806,9 @@ app.get(
 
     res.json({
       total,
-
       available,
-
       sold,
-
       featured,
-
       totalListedValue:
         value
     });
@@ -1616,6 +1578,10 @@ const server =
 
       console.log(
         `Database: ${DB_FILE}`
+      );
+
+      console.log(
+        "Admin session/proxy configuration enabled."
       );
     }
   );
