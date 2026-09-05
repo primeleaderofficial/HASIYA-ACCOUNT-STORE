@@ -9,24 +9,64 @@ const path = require("path");
 const app = express();
 
 const PORT = Number(process.env.PORT || 3000);
-
 const DATA_DIR = path.join(__dirname, "data");
-fs.mkdirSync(DATA_DIR, { recursive: true });
-
 const DB_FILE = path.join(DATA_DIR, "store.db");
 
-/* =========================================================
-   DATABASE
-========================================================= */
+fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const db = new Database(DB_FILE);
+/*
+========================================================
+DATABASE
+========================================================
+*/
 
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
+let db;
 
-/* =========================================================
-   DATABASE HELPERS
-========================================================= */
+function openDatabase() {
+  try {
+    db = new Database(DB_FILE);
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+    return;
+  } catch (err) {
+    console.error("Database open failed:", err.message);
+
+    /*
+      If the existing DB file is invalid, keep a backup
+      and create a fresh SQLite database.
+    */
+    const backup = path.join(
+      DATA_DIR,
+      `store.db.invalid-${Date.now()}`
+    );
+
+    try {
+      if (fs.existsSync(DB_FILE)) {
+        fs.renameSync(DB_FILE, backup);
+        console.error(`Invalid database moved to: ${backup}`);
+      }
+    } catch (backupErr) {
+      console.error(
+        "Could not backup invalid database:",
+        backupErr.message
+      );
+    }
+
+    db = new Database(DB_FILE);
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+
+    console.log("Created a new SQLite database.");
+  }
+}
+
+openDatabase();
+
+/*
+========================================================
+SQL HELPERS
+========================================================
+*/
 
 function sqlRun(sql, params = []) {
   return db.prepare(sql).run(...params);
@@ -40,22 +80,28 @@ function sqlGet(sql, params = []) {
   return db.prepare(sql).get(...params);
 }
 
-/* =========================================================
-   DATABASE SCHEMA
-========================================================= */
+/*
+better-sqlite3 writes directly to the database.
+No export/save operation is required.
+*/
+function saveDb() {
+  // Intentionally empty.
+}
+
+/*
+========================================================
+DATABASE SCHEMA
+========================================================
+*/
 
 function initSchema() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
       title TEXT NOT NULL,
       game TEXT NOT NULL,
-
       price INTEGER NOT NULL CHECK(price >= 0),
-
       image_url TEXT NOT NULL,
-
       level TEXT DEFAULT '',
       fashion TEXT DEFAULT '',
       evo_guns TEXT DEFAULT '',
@@ -63,12 +109,9 @@ function initSchema() {
       likes TEXT DEFAULT '',
       bind_info TEXT DEFAULT '',
       description TEXT DEFAULT '',
-
       featured INTEGER NOT NULL DEFAULT 0,
-
       status TEXT NOT NULL DEFAULT 'AVAILABLE'
         CHECK(status IN ('AVAILABLE','SOLD')),
-
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -86,9 +129,11 @@ function initSchema() {
   `);
 }
 
-/* =========================================================
-   PASSWORD SECURITY
-========================================================= */
+/*
+========================================================
+PASSWORD FUNCTIONS
+========================================================
+*/
 
 function hashPassword(
   password,
@@ -102,42 +147,44 @@ function hashPassword(
 }
 
 function verifyPassword(password, stored) {
-  const parts = String(stored).split("$");
+  try {
+    const parts = String(stored).split("$");
 
-  if (parts.length !== 3) {
+    if (parts.length !== 3) return false;
+
+    const [, salt, expected] = parts;
+
+    if (!salt || !expected) return false;
+
+    const actual = crypto
+      .scryptSync(password, salt, 64)
+      .toString("hex");
+
+    const actualBuffer = Buffer.from(actual, "hex");
+    const expectedBuffer = Buffer.from(expected, "hex");
+
+    if (actualBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(
+      actualBuffer,
+      expectedBuffer
+    );
+  } catch {
     return false;
   }
-
-  const [, salt, expected] = parts;
-
-  if (!salt || !expected) {
-    return false;
-  }
-
-  const actual = crypto
-    .scryptSync(password, salt, 64)
-    .toString("hex");
-
-  const actualBuffer = Buffer.from(actual, "hex");
-  const expectedBuffer = Buffer.from(expected, "hex");
-
-  if (actualBuffer.length !== expectedBuffer.length) {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(
-    actualBuffer,
-    expectedBuffer
-  );
 }
 
-/* =========================================================
-   SETTINGS
-========================================================= */
+/*
+========================================================
+SETTINGS
+========================================================
+*/
 
 function getSetting(key) {
   const row = sqlGet(
-    "SELECT value FROM settings WHERE key = ?",
+    "SELECT value FROM settings WHERE key=?",
     [key]
   );
 
@@ -147,28 +194,25 @@ function getSetting(key) {
 function setSetting(key, value) {
   sqlRun(
     `
-      INSERT INTO settings(key, value)
-      VALUES(?, ?)
+      INSERT INTO settings(key,value)
+      VALUES(?,?)
       ON CONFLICT(key)
-      DO UPDATE SET value = excluded.value
+      DO UPDATE SET value=excluded.value
     `,
-    [
-      key,
-      String(value ?? "")
-    ]
+    [key, String(value ?? "")]
   );
 }
 
-/* =========================================================
-   GOOGLE DRIVE IMAGE URL
-========================================================= */
+/*
+========================================================
+GOOGLE DRIVE IMAGE URL
+========================================================
+*/
 
 function driveToImageUrl(input) {
   const url = String(input || "").trim();
 
-  if (!url) {
-    return "";
-  }
+  if (!url) return "";
 
   const patterns = [
     /\/file\/d\/([^/]+)/,
@@ -176,8 +220,8 @@ function driveToImageUrl(input) {
     /\/open\?id=([^&]+)/
   ];
 
-  for (const regex of patterns) {
-    const match = url.match(regex);
+  for (const re of patterns) {
+    const match = url.match(re);
 
     if (match) {
       return `https://drive.google.com/uc?export=view&id=${encodeURIComponent(
@@ -193,9 +237,11 @@ function driveToImageUrl(input) {
   return "";
 }
 
-/* =========================================================
-   PRICE RANGE
-========================================================= */
+/*
+========================================================
+PRICE RANGE
+========================================================
+*/
 
 function priceRange(price) {
   const p = Number(price);
@@ -223,52 +269,44 @@ function priceRange(price) {
   return "all";
 }
 
-/* =========================================================
-   INIT DATABASE
-========================================================= */
+/*
+========================================================
+INITIALIZE DATABASE
+========================================================
+*/
 
 initSchema();
 
-/* =========================================================
-   DEFAULT SETTINGS
-========================================================= */
-
 const defaultSettings = {
   whatsapp_number: "",
-
-  store_name:
-    "HASIYA ACCOUNT STORE",
-
-  slogan:
-    "හොරුන්ට අහු වූ කාලේ ඉවරයි.",
-
+  store_name: "HASIYA ACCOUNT STORE",
+  slogan: "හොරුන්ට අහු වූ කාලේ ඉවරයි.",
   secondary_slogan:
     "100% විශ්වාසවන්ත ලෙස Account වැඩ කරගැනීමට අප සමඟ එකතු වන්න."
 };
 
 for (const [key, value] of Object.entries(defaultSettings)) {
   sqlRun(
-    `
-      INSERT OR IGNORE INTO settings(key, value)
-      VALUES(?, ?)
-    `,
+    "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",
     [key, value]
   );
 }
 
-/* =========================================================
-   FIRST ADMIN ACCOUNT
-========================================================= */
+/*
+========================================================
+FIRST ADMIN
+========================================================
+*/
 
 const existingAdmin = sqlGet(
-  "SELECT id FROM admin WHERE id = 1"
+  "SELECT id FROM admin WHERE id=1"
 );
 
 if (!existingAdmin) {
   const username = "admin";
-
-  const password =
-    crypto.randomBytes(9).toString("base64url");
+  const password = crypto
+    .randomBytes(9)
+    .toString("base64url");
 
   sqlRun(
     `
@@ -285,40 +323,29 @@ if (!existingAdmin) {
     ]
   );
 
-  const firstRunFile = path.join(
-    DATA_DIR,
-    "first-run-admin.txt"
-  );
-
   fs.writeFileSync(
-    firstRunFile,
-`HASIYA ACCOUNT STORE V1 - FIRST RUN ADMIN
+    path.join(DATA_DIR, "first-run-admin.txt"),
+    `HASIYA ACCOUNT STORE V1 - FIRST RUN ADMIN
 
 Username: ${username}
 Password: ${password}
 
 Change this password immediately in Admin -> Settings.
-
 Delete this file after changing the password.
 `,
-    {
-      mode: 0o600
-    }
+    { mode: 0o600 }
   );
 
-  console.log("");
-  console.log("==============================================");
-  console.log(" FIRST RUN ADMIN CREATED");
-  console.log("==============================================");
-  console.log(` Username: ${username}`);
-  console.log(` Password: ${password}`);
-  console.log("==============================================");
-  console.log("");
+  console.log(
+    "First-run admin credentials created."
+  );
 }
 
-/* =========================================================
-   MIDDLEWARE
-========================================================= */
+/*
+========================================================
+MIDDLEWARE
+========================================================
+*/
 
 app.use(
   helmet({
@@ -351,12 +378,9 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-
       secure:
         process.env.NODE_ENV === "production",
-
-      maxAge:
-        8 * 60 * 60 * 1000
+      maxAge: 8 * 60 * 60 * 1000
     }
   })
 );
@@ -367,9 +391,11 @@ app.use(
   )
 );
 
-/* =========================================================
-   AUTH MIDDLEWARE
-========================================================= */
+/*
+========================================================
+AUTH
+========================================================
+*/
 
 function auth(req, res, next) {
   if (
@@ -379,150 +405,144 @@ function auth(req, res, next) {
     return next();
   }
 
-  return res.status(401).json({
-    error: "Unauthorized"
-  });
+  return res
+    .status(401)
+    .json({
+      error: "Unauthorized"
+    });
 }
 
-/* =========================================================
-   PUBLIC STORE API
-========================================================= */
+/*
+========================================================
+STORE API
+========================================================
+*/
 
-app.get(
-  "/api/store",
-  (req, res) => {
-    const settingsRows = sqlAll(
-      "SELECT key, value FROM settings"
+app.get("/api/store", (req, res) => {
+  const settings = Object.fromEntries(
+    sqlAll(
+      "SELECT key,value FROM settings"
+    ).map(row => [
+      row.key,
+      row.value
+    ])
+  );
+
+  res.json({
+    settings: {
+      store_name:
+        settings.store_name,
+
+      slogan:
+        settings.slogan,
+
+      secondary_slogan:
+        settings.secondary_slogan,
+
+      whatsapp_number:
+        settings.whatsapp_number
+    },
+
+    priceRanges: [
+      [1, 1000, 10000],
+      [2, 10000, 20000],
+      [3, 20000, 30000],
+      [4, 30000, 40000],
+      [5, 40000, 50000],
+      [6, 50000, 60000],
+      [7, 60000, 70000],
+      [8, 70000, 80000],
+      [9, 80000, 90000],
+      [10, 90000, 100000],
+      [11, 100000, 200000],
+      [12, 200000, 300000],
+      [13, 300000, 400000],
+      [14, 400000, 500000],
+      [15, 500000, 600000],
+      [16, 600000, 700000],
+      [17, 700000, 800000],
+      [18, 800000, 900000],
+      [19, 900000, 1000000]
+    ]
+  });
+});
+
+/*
+========================================================
+PUBLIC ACCOUNTS
+========================================================
+*/
+
+app.get("/api/accounts", (req, res) => {
+  const sold =
+    req.query.sold === "1";
+
+  const range =
+    String(
+      req.query.range || "all"
     );
 
-    const settings = Object.fromEntries(
-      settingsRows.map(row => [
-        row.key,
-        row.value
-      ])
-    );
+  let sql =
+    "SELECT * FROM accounts WHERE status=?";
 
-    res.json({
-      settings: {
-        store_name:
-          settings.store_name,
+  const params = [
+    sold
+      ? "SOLD"
+      : "AVAILABLE"
+  ];
 
-        slogan:
-          settings.slogan,
+  if (
+    !sold &&
+    range !== "all"
+  ) {
+    const ranges = {
+      1: [1000, 10000],
+      2: [10000, 20000],
+      3: [20000, 30000],
+      4: [30000, 40000],
+      5: [40000, 50000],
+      6: [50000, 60000],
+      7: [60000, 70000],
+      8: [70000, 80000],
+      9: [80000, 90000],
+      10: [90000, 100000],
 
-        secondary_slogan:
-          settings.secondary_slogan,
+      11: [100000, 200000],
+      12: [200000, 300000],
+      13: [300000, 400000],
+      14: [400000, 500000],
+      15: [500000, 600000],
+      16: [600000, 700000],
+      17: [700000, 800000],
+      18: [800000, 900000],
+      19: [900000, 1000000]
+    };
 
-        whatsapp_number:
-          settings.whatsapp_number
-      },
+    if (ranges[range]) {
+      sql +=
+        " AND price >= ? AND price <= ?";
 
-      priceRanges: [
-        [1, 1000, 10000],
-        [2, 10000, 20000],
-        [3, 20000, 30000],
-        [4, 30000, 40000],
-        [5, 40000, 50000],
-        [6, 50000, 60000],
-        [7, 60000, 70000],
-        [8, 70000, 80000],
-        [9, 80000, 90000],
-        [10, 90000, 100000],
-
-        [11, 100000, 200000],
-        [12, 200000, 300000],
-        [13, 300000, 400000],
-        [14, 400000, 500000],
-        [15, 500000, 600000],
-        [16, 600000, 700000],
-        [17, 700000, 800000],
-        [18, 800000, 900000],
-        [19, 900000, 1000000]
-      ]
-    });
-  }
-);
-
-/* =========================================================
-   PUBLIC ACCOUNTS API
-========================================================= */
-
-app.get(
-  "/api/accounts",
-  (req, res) => {
-    const sold =
-      req.query.sold === "1";
-
-    const range =
-      String(
-        req.query.range || "all"
+      params.push(
+        ranges[range][0],
+        ranges[range][1]
       );
-
-    let sql =
-      "SELECT * FROM accounts WHERE status = ?";
-
-    const params = [
-      sold
-        ? "SOLD"
-        : "AVAILABLE"
-    ];
-
-    if (
-      !sold &&
-      range !== "all"
-    ) {
-      const ranges = {
-        1: [1000, 10000],
-        2: [10000, 20000],
-        3: [20000, 30000],
-        4: [30000, 40000],
-        5: [40000, 50000],
-        6: [50000, 60000],
-        7: [60000, 70000],
-        8: [70000, 80000],
-        9: [80000, 90000],
-        10: [90000, 100000],
-
-        11: [100000, 200000],
-        12: [200000, 300000],
-        13: [300000, 400000],
-        14: [400000, 500000],
-        15: [500000, 600000],
-        16: [600000, 700000],
-        17: [700000, 800000],
-        18: [800000, 900000],
-        19: [900000, 1000000]
-      };
-
-      if (ranges[range]) {
-        sql +=
-          " AND price >= ? AND price <= ?";
-
-        params.push(
-          ranges[range][0],
-          ranges[range][1]
-        );
-      }
     }
-
-    if (sold) {
-      sql +=
-        " ORDER BY updated_at DESC, id DESC";
-    } else {
-      sql +=
-        " ORDER BY featured DESC, price ASC, id DESC";
-    }
-
-    const accounts =
-      sqlAll(sql, params);
-
-    res.json(accounts);
   }
-);
 
-/* =========================================================
-   ADMIN LOGIN
-========================================================= */
+  sql += sold
+    ? " ORDER BY updated_at DESC, id DESC"
+    : " ORDER BY featured DESC, price ASC, id DESC";
+
+  res.json(
+    sqlAll(sql, params)
+  );
+});
+
+/*
+========================================================
+ADMIN LOGIN
+========================================================
+*/
 
 app.post(
   "/api/admin/login",
@@ -532,10 +552,9 @@ app.post(
       password
     } = req.body || {};
 
-    const admin =
-      sqlGet(
-        "SELECT * FROM admin WHERE id = 1"
-      );
+    const admin = sqlGet(
+      "SELECT * FROM admin WHERE id=1"
+    );
 
     if (
       !admin ||
@@ -545,22 +564,26 @@ app.post(
         admin.password_hash
       )
     ) {
-      return res.status(401).json({
-        error: "Invalid credentials"
-      });
+      return res
+        .status(401)
+        .json({
+          error: "Invalid credentials"
+        });
     }
 
     req.session.admin = true;
 
-    return res.json({
+    res.json({
       ok: true
     });
   }
 );
 
-/* =========================================================
-   ADMIN LOGOUT
-========================================================= */
+/*
+========================================================
+ADMIN LOGOUT
+========================================================
+*/
 
 app.post(
   "/api/admin/logout",
@@ -574,9 +597,11 @@ app.post(
   }
 );
 
-/* =========================================================
-   ADMIN SESSION CHECK
-========================================================= */
+/*
+========================================================
+ADMIN SESSION
+========================================================
+*/
 
 app.get(
   "/api/admin/me",
@@ -591,9 +616,11 @@ app.get(
   }
 );
 
-/* =========================================================
-   ADMIN DASHBOARD
-========================================================= */
+/*
+========================================================
+ADMIN DASHBOARD
+========================================================
+*/
 
 app.get(
   "/api/admin/dashboard",
@@ -601,47 +628,30 @@ app.get(
   (req, res) => {
     const total =
       sqlGet(
-        "SELECT COUNT(*) AS c FROM accounts"
+        "SELECT COUNT(*) c FROM accounts"
       ).c;
 
     const available =
       sqlGet(
-        `
-        SELECT COUNT(*) AS c
-        FROM accounts
-        WHERE status = 'AVAILABLE'
-        `
+        "SELECT COUNT(*) c FROM accounts WHERE status='AVAILABLE'"
       ).c;
 
     const sold =
       sqlGet(
-        `
-        SELECT COUNT(*) AS c
-        FROM accounts
-        WHERE status = 'SOLD'
-        `
+        "SELECT COUNT(*) c FROM accounts WHERE status='SOLD'"
       ).c;
 
     const featured =
       sqlGet(
-        `
-        SELECT COUNT(*) AS c
-        FROM accounts
-        WHERE featured = 1
-        `
+        "SELECT COUNT(*) c FROM accounts WHERE featured=1"
       ).c;
 
     const value =
       sqlGet(
         `
-        SELECT COALESCE(
-          SUM(price),
-          0
-        ) AS v
-
+        SELECT COALESCE(SUM(price),0) v
         FROM accounts
-
-        WHERE status = 'AVAILABLE'
+        WHERE status='AVAILABLE'
         `
       ).v;
 
@@ -655,41 +665,40 @@ app.get(
   }
 );
 
-/* =========================================================
-   ADMIN ACCOUNTS
-========================================================= */
+/*
+========================================================
+ADMIN ACCOUNTS
+========================================================
+*/
 
 app.get(
   "/api/admin/accounts",
   auth,
   (req, res) => {
-    const accounts =
+    res.json(
       sqlAll(
         `
         SELECT *
         FROM accounts
         ORDER BY updated_at DESC, id DESC
         `
-      );
-
-    res.json(accounts);
+      )
+    );
   }
 );
 
-/* =========================================================
-   VALIDATE ACCOUNT
-========================================================= */
+/*
+========================================================
+VALIDATE ACCOUNT
+========================================================
+*/
 
 function validateAccount(body) {
   const title =
-    String(
-      body.title || ""
-    ).trim();
+    String(body.title || "").trim();
 
   const game =
-    String(
-      body.game || ""
-    ).trim();
+    String(body.game || "").trim();
 
   const price =
     Number(body.price);
@@ -767,9 +776,11 @@ function validateAccount(body) {
   };
 }
 
-/* =========================================================
-   ADD ACCOUNT
-========================================================= */
+/*
+========================================================
+ADD ACCOUNT
+========================================================
+*/
 
 app.post(
   "/api/admin/accounts",
@@ -783,7 +794,7 @@ app.post(
 
       const stmt =
         db.prepare(`
-          INSERT INTO accounts(
+          INSERT INTO accounts (
             title,
             game,
             price,
@@ -799,41 +810,40 @@ app.post(
             status,
             updated_at
           )
-
-          VALUES(
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
+          VALUES (
+            @title,
+            @game,
+            @price,
+            @image_url,
+            @level,
+            @fashion,
+            @evo_guns,
+            @emotes,
+            @likes,
+            @bind_info,
+            @description,
+            @featured,
+            @status,
             CURRENT_TIMESTAMP
           )
         `);
 
       const result =
-        stmt.run(
-          a.title,
-          a.game,
-          a.price,
-          a.image_url,
-          a.level,
-          a.fashion,
-          a.evo_guns,
-          a.emotes,
-          a.likes,
-          a.bind_info,
-          a.description,
-          a.featured,
-          a.status
-        );
+        stmt.run({
+          title: a.title,
+          game: a.game,
+          price: a.price,
+          image_url: a.image_url,
+          level: a.level,
+          fashion: a.fashion,
+          evo_guns: a.evo_guns,
+          emotes: a.emotes,
+          likes: a.likes,
+          bind_info: a.bind_info,
+          description: a.description,
+          featured: a.featured,
+          status: a.status
+        });
 
       res.json({
         ok: true,
@@ -842,19 +852,23 @@ app.post(
             result.lastInsertRowid
           )
       });
+    } catch (e) {
+      console.error(e);
 
-    } catch (error) {
-      res.status(400).json({
-        error:
-          error.message
-      });
+      res
+        .status(400)
+        .json({
+          error: e.message
+        });
     }
   }
 );
 
-/* =========================================================
-   UPDATE ACCOUNT
-========================================================= */
+/*
+========================================================
+EDIT ACCOUNT
+========================================================
+*/
 
 app.put(
   "/api/admin/accounts/:id",
@@ -871,157 +885,149 @@ app.put(
           req.params.id
         );
 
-      if (
-        !Number.isInteger(id) ||
-        id <= 0
-      ) {
-        return res.status(400).json({
-          error:
-            "Invalid account ID"
-        });
-      }
-
       const result =
         db.prepare(`
           UPDATE accounts
-
           SET
-            title = ?,
-            game = ?,
-            price = ?,
-            image_url = ?,
-            level = ?,
-            fashion = ?,
-            evo_guns = ?,
-            emotes = ?,
-            likes = ?,
-            bind_info = ?,
-            description = ?,
-            featured = ?,
-            status = ?,
-            updated_at = CURRENT_TIMESTAMP
-
-          WHERE id = ?
-        `).run(
-          a.title,
-          a.game,
-          a.price,
-          a.image_url,
-          a.level,
-          a.fashion,
-          a.evo_guns,
-          a.emotes,
-          a.likes,
-          a.bind_info,
-          a.description,
-          a.featured,
-          a.status,
+            title=@title,
+            game=@game,
+            price=@price,
+            image_url=@image_url,
+            level=@level,
+            fashion=@fashion,
+            evo_guns=@evo_guns,
+            emotes=@emotes,
+            likes=@likes,
+            bind_info=@bind_info,
+            description=@description,
+            featured=@featured,
+            status=@status,
+            updated_at=CURRENT_TIMESTAMP
+          WHERE id=@id
+        `).run({
+          title: a.title,
+          game: a.game,
+          price: a.price,
+          image_url: a.image_url,
+          level: a.level,
+          fashion: a.fashion,
+          evo_guns: a.evo_guns,
+          emotes: a.emotes,
+          likes: a.likes,
+          bind_info: a.bind_info,
+          description: a.description,
+          featured: a.featured,
+          status: a.status,
           id
-        );
-
-      if (
-        result.changes === 0
-      ) {
-        return res.status(404).json({
-          error:
-            "Account not found"
         });
+
+      if (!result.changes) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "Account not found"
+          });
       }
 
       res.json({
         ok: true
       });
+    } catch (e) {
+      console.error(e);
 
-    } catch (error) {
-      res.status(400).json({
-        error:
-          error.message
-      });
+      res
+        .status(400)
+        .json({
+          error: e.message
+        });
     }
   }
 );
 
-/* =========================================================
-   DELETE ACCOUNT
-========================================================= */
+/*
+========================================================
+DELETE ACCOUNT
+========================================================
+*/
 
 app.delete(
   "/api/admin/accounts/:id",
   auth,
   (req, res) => {
-    const id =
-      Number(
-        req.params.id
-      );
-
     const result =
-      db.prepare(
-        "DELETE FROM accounts WHERE id = ?"
-      ).run(id);
+      sqlRun(
+        "DELETE FROM accounts WHERE id=?",
+        [
+          Number(
+            req.params.id
+          )
+        ]
+      );
 
     res.json({
       ok:
-        result.changes > 0
+        !!result.changes
     });
   }
 );
 
-/* =========================================================
-   CHANGE SOLD / AVAILABLE STATUS
-========================================================= */
+/*
+========================================================
+SOLD / AVAILABLE
+========================================================
+*/
 
 app.patch(
   "/api/admin/accounts/:id/status",
   auth,
   (req, res) => {
-    const id =
-      Number(
-        req.params.id
-      );
-
     const status =
       req.body.status === "SOLD"
         ? "SOLD"
         : "AVAILABLE";
 
     const result =
-      db.prepare(`
+      sqlRun(
+        `
         UPDATE accounts
-
         SET
-          status = ?,
-          updated_at = CURRENT_TIMESTAMP
-
-        WHERE id = ?
-      `).run(
-        status,
-        id
+          status=?,
+          updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        `,
+        [
+          status,
+          Number(
+            req.params.id
+          )
+        ]
       );
 
     res.json({
       ok:
-        result.changes > 0
+        !!result.changes
     });
   }
 );
 
-/* =========================================================
-   UPDATE STORE SETTINGS
-========================================================= */
+/*
+========================================================
+ADMIN SETTINGS
+========================================================
+*/
 
 app.put(
   "/api/admin/settings",
   auth,
   (req, res) => {
-    const allowed = [
-      "whatsapp_number",
-      "store_name",
-      "slogan",
-      "secondary_slogan"
-    ];
-
     for (
-      const key of allowed
+      const key of [
+        "whatsapp_number",
+        "store_name",
+        "slogan",
+        "secondary_slogan"
+      ]
     ) {
       if (
         Object.prototype.hasOwnProperty.call(
@@ -1044,9 +1050,11 @@ app.put(
   }
 );
 
-/* =========================================================
-   CHANGE ADMIN PASSWORD
-========================================================= */
+/*
+========================================================
+CHANGE PASSWORD
+========================================================
+*/
 
 app.post(
   "/api/admin/password",
@@ -1054,17 +1062,19 @@ app.post(
   (req, res) => {
     const current =
       String(
-        req.body.currentPassword || ""
+        req.body.currentPassword ||
+          ""
       );
 
     const next =
       String(
-        req.body.newPassword || ""
+        req.body.newPassword ||
+          ""
       );
 
     const admin =
       sqlGet(
-        "SELECT * FROM admin WHERE id = 1"
+        "SELECT * FROM admin WHERE id=1"
       );
 
     if (
@@ -1074,28 +1084,28 @@ app.post(
         admin.password_hash
       )
     ) {
-      return res.status(400).json({
-        error:
-          "Current password is incorrect"
-      });
+      return res
+        .status(400)
+        .json({
+          error:
+            "Current password is incorrect"
+        });
     }
 
-    if (
-      next.length < 10
-    ) {
-      return res.status(400).json({
-        error:
-          "New password must be at least 10 characters"
-      });
+    if (next.length < 10) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "New password must be at least 10 characters"
+        });
     }
 
     sqlRun(
       `
       UPDATE admin
-
-      SET password_hash = ?
-
-      WHERE id = 1
+      SET password_hash=?
+      WHERE id=1
       `,
       [
         hashPassword(next)
@@ -1108,9 +1118,11 @@ app.post(
   }
 );
 
-/* =========================================================
-   ROUTES
-========================================================= */
+/*
+========================================================
+FRONTEND ROUTES
+========================================================
+*/
 
 app.get(
   "/admin",
@@ -1125,9 +1137,18 @@ app.get(
   }
 );
 
-app.get(
-  "*",
-  (req, res) => {
+/*
+Express 4/5 compatible fallback.
+*/
+app.use(
+  (req, res, next) => {
+    if (
+      req.method !== "GET" ||
+      req.path.startsWith("/api/")
+    ) {
+      return next();
+    }
+
     res.sendFile(
       path.join(
         __dirname,
@@ -1138,56 +1159,83 @@ app.get(
   }
 );
 
-/* =========================================================
-   START SERVER
-========================================================= */
+/*
+========================================================
+ERROR HANDLER
+========================================================
+*/
 
-app.listen(
-  PORT,
-  () => {
-    console.log("");
-    console.log(
-      "=============================================="
+app.use(
+  (err, req, res, next) => {
+    console.error(
+      "Server error:",
+      err
     );
-    console.log(
-      "       HASIYA ACCOUNT STORE V1"
-    );
-    console.log(
-      "=============================================="
-    );
-    console.log(
-      ` Server running: http://localhost:${PORT}`
-    );
-    console.log(
-      ` Admin panel:    http://localhost:${PORT}/admin`
-    );
-    console.log(
-      "=============================================="
-    );
-    console.log("");
+
+    res
+      .status(500)
+      .json({
+        error:
+          "Internal server error"
+      });
   }
 );
 
-/* =========================================================
-   GRACEFUL SHUTDOWN
-========================================================= */
+/*
+========================================================
+START SERVER
+========================================================
+*/
 
-function shutdown() {
-  try {
-    db.close();
-  } catch (error) {
-    // Ignore database close errors
-  }
+const server =
+  app.listen(
+    PORT,
+    "0.0.0.0",
+    () => {
+      console.log(
+        `HASIYA ACCOUNT STORE running on port ${PORT}`
+      );
 
-  process.exit(0);
+      console.log(
+        `Database: ${DB_FILE}`
+      );
+    }
+  );
+
+/*
+========================================================
+GRACEFUL SHUTDOWN
+========================================================
+*/
+
+function shutdown(signal) {
+  console.log(
+    `${signal} received. Shutting down...`
+  );
+
+  server.close(() => {
+    try {
+      db.close();
+      console.log(
+        "Database closed."
+      );
+    } catch (err) {
+      console.error(
+        "Database close error:",
+        err.message
+      );
+    }
+
+    process.exit(0);
+  });
 }
 
 process.on(
   "SIGINT",
-  shutdown
+  () => shutdown("SIGINT")
 );
 
 process.on(
   "SIGTERM",
-  shutdown
+  () => shutdown("SIGTERM")
 );
