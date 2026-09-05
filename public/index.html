@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HASIYA ACCOUNT STORE</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+
+<header class="nav">
+  <a class="brand-mini" href="/">HASIYA <span>ACCOUNT STORE</span></a>
+
+  <button class="nav-toggle" id="navToggle">☰</button>
+
+  <nav id="navLinks">
+    <a href="#home">HOME</a>
+    <a href="#accounts">ACCOUNTS</a>
+    <a href="#prices">PRICE FILTER</a>
+    <a href="#sold">SOLD OUT</a>
+    <a href="#contact">CONTACT</a>
+  </nav>
+</header>
+
+
+<main>
+
+<!-- =========================
+     HERO
+========================= -->
+
+<section class="hero" id="home">
+
+  <div class="hero-grid"></div>
+
+  <div class="hero-content">
+
+    <div class="eyebrow">
+      SRI LANKAN GAMING ACCOUNT STORE
+    </div>
+
+    <h1 id="storeName">
+      HASIYA ACCOUNT STORE
+    </h1>
+
+    <p class="slogan" id="slogan">
+      හොරුන්ට අහු වූ කාලේ ඉවරයි.
+    </p>
+
+    <p class="secondary" id="secondary">
+      100% විශ්වාසවන්ත ලෙස Account වැඩ කරගැනීමට අප සමඟ එකතු වන්න.
+    </p>
+
+    <a class="btn primary" href="#prices">
+      BROWSE ACCOUNTS
+    </a>
+
+  </div>
+
+</section>
+
+
+<!-- =========================
+     TRUST BAR
+========================= -->
+
+<section class="trust">
+
+  <div>
+    <strong>ADMIN-LISTED</strong>
+    <span>Only store-admin listings</span>
+  </div>
+
+  <div>
+    <strong>CLEAR DETAILS</strong>
+    <span>Information before purchase</span>
+  </div>
+
+  <div>
+    <strong>WHATSAPP</strong>
+    <span>Direct store contact</span>
+  </div>
+
+  <div>
+    <strong>SOLD HISTORY</strong>
+    <span>Sold accounts remain visible</span>
+  </div>
+
+</section>
+
+
+<!-- =========================
+     PRICE FILTER
+     FIRST
+========================= -->
+
+<section class="section alt" id="prices">
+
+  <div class="section-head">
+
+    <div>
+      <span class="eyebrow">
+        FILTER
+      </span>
+
+      <h2>
+        Find by Price
+      </h2>
+    </div>
+
+  </div>
+
+  <div
+    class="price-grid"
+    id="priceGrid">
+  </div>
+
+</section>
+
+
+<!-- =========================
+     AVAILABLE ACCOUNTS
+     BELOW PRICE FILTER
+========================= -->
+
+<section class="section" id="accounts">
+
+  <div class="section-head">
+
+    <div>
+      <span class="eyebrow">
+        AVAILABLE
+      </span>
+
+      <h2>
+        Featured & Available Accounts
+      </h2>
+
+    </div>
+
+    <div
+      id="resultCount"
+      class="muted">
+    </div>
+
+  </div>
+
+
+  <div
+    id="accountsGrid"
+    class="account-grid">
+  </div>
+
+
+  <div
+    id="pagination"
+    class="pagination">
+  </div>
+
+</section>
+
+
+<!-- =========================
+     SOLD OUT
+========================= -->
+
+<section class="section" id="sold">
+
+  <div class="section-head">
+
+    <div>
+
+      <span class="eyebrow">
+        HISTORY
+      </span>
+
+      <h2>
+        Sold Out
+      </h2>
+
+    </div>
+
+    <div class="muted">
+      Previous listings stay visible for transparency.
+    </div>
+
+  </div>
+
+
+  <div
+    id="soldGrid"
+    class="account-grid">
+  </div>
+
+</section>
+
+
+<!-- =========================
+     TRUST SECTION
+========================= -->
+
+<section class="section trust-section">
+
+  <div class="section-head">
+
+    <div>
+
+      <span class="eyebrow">
+        TRUST
+      </span>
+
+      <h2>
+        Why this store?
+      </h2>
+
+    </div>
+
+  </div>
+
+
+  <div class="trust-copy">
+
+    <p>
+      Accounts are manually listed by the store admin.
+      There are no random public seller listings.
+    </p>
+
+    <p>
+      Sold accounts remain visible as history,
+      and customers can contact the store directly
+      through WhatsApp.
+    </p>
+
+    <p>
+      Account information is shown clearly before purchase.
+      This does not constitute a legal guarantee or a claim
+      that scams are impossible.
+    </p>
+
+  </div>
+
+
+  <div class="legal-note">
+
+    ONLY accounts that the store is legitimately authorized
+    to sell may be listed. Game-account trading may be
+    restricted by individual game publishers' Terms of Service;
+    check the applicable rules before listing a particular
+    game's accounts.
+
+  </div>
+
+</section>
+
+</main>
+
+
+<!-- =========================
+     FOOTER
+========================= -->
+
+<footer id="contact">
+
+  <div>
+
+    <strong>
+      HASIYA ACCOUNT STORE
+    </strong>
+
+    <p id="footerSlogan">
+      හොරුන්ට අහු වූ කාලේ ඉවරයි.
+    </p>
+
+    <p id="footerSecondary">
+      100% විශ්වාසවන්ත ලෙස Account වැඩ කරගැනීමට අප සමඟ එකතු වන්න.
+    </p>
+
+  </div>
+
+
+  <a
+    class="btn primary"
+    id="footerWhatsApp"
+    target="_blank"
+    rel="noopener">
+
+    CONTACT ON WHATSAPP
+
+  </a>
+
+</footer>
+
+
+<!-- =========================
+     ACCOUNT DETAIL MODAL
+========================= -->
+
+<div
+  class="modal"
+  id="detailModal">
+
+  <div class="modal-card">
+
+    <button
+      class="modal-close"
+      id="modalClose">
+      ×
+    </button>
+
+    <div
+      id="detailBody">
+    </div>
+
+  </div>
+
+</div>
+
+
+<!-- =========================
+     JAVASCRIPT
+========================= -->
+
+<script src="/app.js"></script>
+
+</body>
+</html>
