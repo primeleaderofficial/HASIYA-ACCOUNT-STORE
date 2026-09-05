@@ -10,6 +10,7 @@ const path = require("path");
 const app = express();
 
 const PORT = process.env.PORT || 3000;
+
 const DATA_DIR = path.join(__dirname, "data");
 const DB_FILE = path.join(DATA_DIR, "store.db");
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -57,13 +58,13 @@ function openDatabase() {
       if (fs.existsSync(DB_FILE)) {
         const backup = path.join(
           DATA_DIR,
-          `store.db.invalid-${Date.now()}`
+          "store.db.invalid-" + Date.now()
         );
 
         fs.renameSync(DB_FILE, backup);
 
         console.error(
-          `Invalid database moved to: ${backup}`
+          "Invalid database moved to: " + backup
         );
       }
     } catch (backupErr) {
@@ -140,7 +141,7 @@ function hashPassword(password) {
     .scryptSync(password, salt, 64)
     .toString("hex");
 
-  return `${salt}:${hash}`;
+  return salt + ":" + hash;
 }
 
 function verifyPassword(password, storedHash) {
@@ -192,6 +193,8 @@ function initSettings() {
   });
 
   transaction();
+
+  console.log("Default settings initialized.");
 }
 
 initSettings();
@@ -207,7 +210,6 @@ function initAdmin() {
 
   if (!existing) {
     const username = "admin";
-
     const password = "geenath2009#";
 
     const passwordHash = hashPassword(password);
@@ -246,7 +248,6 @@ app.use(
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
-
       maxAge: 1000 * 60 * 60 * 24
     }
   })
@@ -306,11 +307,6 @@ function driveToImageUrl(url) {
 
   url = String(url).trim();
 
-  /*
-    Google Drive file URL:
-    https://drive.google.com/file/d/FILE_ID/view
-  */
-
   const match = url.match(
     /drive\.google\.com\/file\/d\/([^/]+)/
   );
@@ -318,19 +314,21 @@ function driveToImageUrl(url) {
   if (match) {
     const fileId = match[1];
 
-    return `https://drive.google.com/uc?export=view&id=${fileId}`;
+    return (
+      "https://drive.google.com/uc?export=view&id=" +
+      fileId
+    );
   }
-
-  /*
-    Google Drive open URL
-  */
 
   const openMatch = url.match(
     /drive\.google\.com\/open\?id=([^&]+)/
   );
 
   if (openMatch) {
-    return `https://drive.google.com/uc?export=view&id=${openMatch[1]}`;
+    return (
+      "https://drive.google.com/uc?export=view&id=" +
+      openMatch[1]
+    );
   }
 
   return url;
@@ -343,9 +341,7 @@ function normalizeAccount(row) {
 
   return {
     ...row,
-
     image_url: driveToImageUrl(row.image_url),
-
     featured: Boolean(row.featured)
   };
 }
@@ -418,7 +414,9 @@ app.get("/api/accounts", (req, res) => {
         created_at DESC
     `;
 
-    const rows = db.prepare(sql).all(params);
+    const rows = db
+      .prepare(sql)
+      .all(params);
 
     res.json({
       success: true,
@@ -574,7 +572,6 @@ app.get(
 
       res.json({
         success: true,
-
         dashboard: {
           total,
           available,
@@ -650,6 +647,7 @@ app.post(
 
       const level = cleanString(body.level);
       const fashion = cleanString(body.fashion);
+
       const evoGuns = cleanString(
         body.evo_guns || body.evoGuns
       );
@@ -1018,6 +1016,13 @@ app.patch(
     try {
       const id = Number(req.params.id);
 
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid account ID."
+        });
+      }
+
       const status =
         req.body.status === "SOLD"
           ? "SOLD"
@@ -1261,9 +1266,7 @@ app.get(
    STATIC FILES
 ========================================================= */
 
-app.use(
-  express.static(PUBLIC_DIR)
-);
+app.use(express.static(PUBLIC_DIR));
 
 /* =========================================================
    ADMIN PAGE
@@ -1286,7 +1289,13 @@ app.get("/admin", (req, res) => {
    FRONTEND FALLBACK
 ========================================================= */
 
-app.get("*", (req, res) => {
+/*
+  Using app.use instead of app.get("*")
+  avoids path-to-regexp wildcard issues
+  with newer Express versions.
+*/
+
+app.use((req, res) => {
   const indexFile = path.join(
     PUBLIC_DIR,
     "index.html"
@@ -1305,11 +1314,11 @@ app.get("*", (req, res) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(
-    `HASIYA ACCOUNT STORE running on port ${PORT}`
+    "HASIYA ACCOUNT STORE running on port " + PORT
   );
 
   console.log(
-    `Database: ${DB_FILE}`
+    "Database: " + DB_FILE
   );
 
   console.log(
