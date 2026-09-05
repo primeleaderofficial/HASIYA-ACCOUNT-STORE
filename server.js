@@ -1,4 +1,3 @@
-```javascript
 const express = require("express");
 const session = require("express-session");
 const Database = require("better-sqlite3");
@@ -10,6 +9,7 @@ const path = require("path");
 const app = express();
 
 const PORT = Number(process.env.PORT || 3000);
+
 const DATA_DIR = path.join(__dirname, "data");
 const DB_FILE = path.join(DATA_DIR, "store.db");
 
@@ -34,6 +34,11 @@ function openDatabase() {
   } catch (err) {
     console.error("Database open failed:", err.message);
 
+    /*
+      If the existing database is invalid,
+      keep a backup and create a fresh database.
+    */
+
     const backup = path.join(
       DATA_DIR,
       `store.db.invalid-${Date.now()}`
@@ -42,6 +47,7 @@ function openDatabase() {
     try {
       if (fs.existsSync(DB_FILE)) {
         fs.renameSync(DB_FILE, backup);
+
         console.error(
           `Invalid database moved to: ${backup}`
         );
@@ -139,6 +145,7 @@ function initSchema() {
 
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
+
       value TEXT NOT NULL
     );
 
@@ -152,8 +159,6 @@ function initSchema() {
     );
   `);
 }
-
-initSchema();
 
 /*
 ========================================================
@@ -247,101 +252,6 @@ function setSetting(key, value) {
   );
 }
 
-const defaultSettings = {
-  whatsapp_number: "",
-
-  store_name:
-    "HASIYA ACCOUNT STORE",
-
-  slogan:
-    "හොරුන්ට අහු වූ කාලේ ඉවරයි.",
-
-  secondary_slogan:
-    "100% විශ්වාසවන්ත ලෙස Account වැඩ කරගැනීමට අප සමඟ එකතු වන්න."
-};
-
-for (
-  const [key, value]
-  of Object.entries(defaultSettings)
-) {
-  sqlRun(
-    `
-      INSERT OR IGNORE INTO settings(key,value)
-      VALUES(?,?)
-    `,
-    [key, value]
-  );
-}
-
-/*
-========================================================
-ADMIN ACCOUNT
-========================================================
-
-Default admin:
-
-Username: admin
-Password: geenath2009#
-
-NOTE:
-This intentionally keeps the requested credentials.
-========================================================
-*/
-
-const ADMIN_USERNAME = "admin";
-const ADMIN_PASSWORD = "geenath2009#";
-
-if (ADMIN_PASSWORD.length < 10) {
-  console.error(
-    "Admin password must be at least 10 characters."
-  );
-
-  process.exit(1);
-}
-
-const existingAdmin = sqlGet(
-  "SELECT id FROM admin WHERE id=1"
-);
-
-if (!existingAdmin) {
-  sqlRun(
-    `
-      INSERT INTO admin(
-        id,
-        username,
-        password_hash
-      )
-      VALUES(1, ?, ?)
-    `,
-    [
-      ADMIN_USERNAME,
-      hashPassword(ADMIN_PASSWORD)
-    ]
-  );
-
-  console.log(
-    "Admin account created."
-  );
-} else {
-  sqlRun(
-    `
-      UPDATE admin
-      SET
-        username=?,
-        password_hash=?
-      WHERE id=1
-    `,
-    [
-      ADMIN_USERNAME,
-      hashPassword(ADMIN_PASSWORD)
-    ]
-  );
-
-  console.log(
-    "Admin credentials synchronized."
-  );
-}
-
 /*
 ========================================================
 GOOGLE DRIVE IMAGE URL
@@ -349,8 +259,7 @@ GOOGLE DRIVE IMAGE URL
 */
 
 function driveToImageUrl(input) {
-  const url =
-    String(input || "").trim();
+  const url = String(input || "").trim();
 
   if (!url) {
     return "";
@@ -374,9 +283,7 @@ function driveToImageUrl(input) {
     }
   }
 
-  if (
-    /^https?:\/\//i.test(url)
-  ) {
+  if (/^https?:\/\//i.test(url)) {
     return url;
   }
 
@@ -392,64 +299,177 @@ PRICE RANGE
 function priceRange(price) {
   const p = Number(price);
 
-  if (p >= 1000 && p <= 10000)
+  if (p >= 1000 && p <= 10000) {
     return "1";
+  }
 
-  if (p > 10000 && p <= 20000)
+  if (p > 10000 && p <= 20000) {
     return "2";
+  }
 
-  if (p > 20000 && p <= 30000)
+  if (p > 20000 && p <= 30000) {
     return "3";
+  }
 
-  if (p > 30000 && p <= 40000)
+  if (p > 30000 && p <= 40000) {
     return "4";
+  }
 
-  if (p > 40000 && p <= 50000)
+  if (p > 40000 && p <= 50000) {
     return "5";
+  }
 
-  if (p > 50000 && p <= 60000)
+  if (p > 50000 && p <= 60000) {
     return "6";
+  }
 
-  if (p > 60000 && p <= 70000)
+  if (p > 60000 && p <= 70000) {
     return "7";
+  }
 
-  if (p > 70000 && p <= 80000)
+  if (p > 70000 && p <= 80000) {
     return "8";
+  }
 
-  if (p > 80000 && p <= 90000)
+  if (p > 80000 && p <= 90000) {
     return "9";
+  }
 
-  if (p > 90000 && p <= 100000)
+  if (p > 90000 && p <= 100000) {
     return "10";
+  }
 
-  if (p > 100000 && p <= 200000)
+  if (p > 100000 && p <= 200000) {
     return "11";
+  }
 
-  if (p > 200000 && p <= 300000)
+  if (p > 200000 && p <= 300000) {
     return "12";
+  }
 
-  if (p > 300000 && p <= 400000)
+  if (p > 300000 && p <= 400000) {
     return "13";
+  }
 
-  if (p > 400000 && p <= 500000)
+  if (p > 400000 && p <= 500000) {
     return "14";
+  }
 
-  if (p > 500000 && p <= 600000)
+  if (p > 500000 && p <= 600000) {
     return "15";
+  }
 
-  if (p > 600000 && p <= 700000)
+  if (p > 600000 && p <= 700000) {
     return "16";
+  }
 
-  if (p > 700000 && p <= 800000)
+  if (p > 700000 && p <= 800000) {
     return "17";
+  }
 
-  if (p > 800000 && p <= 900000)
+  if (p > 800000 && p <= 900000) {
     return "18";
+  }
 
-  if (p > 900000 && p <= 1000000)
+  if (p > 900000 && p <= 1000000) {
     return "19";
+  }
 
   return "all";
+}
+
+/*
+========================================================
+INITIALIZE DATABASE
+========================================================
+*/
+
+initSchema();
+
+/*
+========================================================
+DEFAULT SETTINGS
+========================================================
+*/
+
+const defaultSettings = {
+  whatsapp_number: "",
+
+  store_name:
+    "HASIYA ACCOUNT STORE",
+
+  slogan:
+    "හොරුන්ට අහු වූ කාලේ ඉවරයි.",
+
+  secondary_slogan:
+    "100% විශ්වාසවන්ත ලෙස Account වැඩ කරගැනීමට අප සමඟ එකතු වන්න."
+};
+
+for (
+  const [key, value]
+  of Object.entries(defaultSettings)
+) {
+  sqlRun(
+    `
+      INSERT OR IGNORE INTO settings(key,value)
+      VALUES(?,?)
+    `,
+    [
+      key,
+      value
+    ]
+  );
+}
+
+/*
+========================================================
+ADMIN
+========================================================
+*/
+
+const adminUsername = "admin";
+const adminPassword = "geenath2009#";
+
+if (adminPassword.length < 10) {
+  console.error(
+    "Admin password must be at least 10 characters."
+  );
+
+  process.exit(1);
+}
+
+const existingAdmin = sqlGet(
+  "SELECT id FROM admin WHERE id=1"
+);
+
+if (!existingAdmin) {
+  sqlRun(
+    `
+      INSERT INTO admin(
+        id,
+        username,
+        password_hash
+      )
+
+      VALUES(
+        1,
+        ?,
+        ?
+      )
+    `,
+    [
+      adminUsername,
+      hashPassword(adminPassword)
+    ]
+  );
+
+  console.log("Admin account created.");
+} else {
+  /*
+    Keep the existing admin account.
+    Do NOT reset the password on every restart.
+  */
+  console.log("Admin account already exists.");
 }
 
 /*
@@ -476,13 +496,11 @@ app.use(
   })
 );
 
-const sessionSecret =
-  process.env.SESSION_SECRET ||
-  crypto.randomBytes(32).toString("hex");
-
 app.use(
   session({
-    secret: sessionSecret,
+    secret:
+      process.env.SESSION_SECRET ||
+      "HASIYA_ACCOUNT_STORE_CHANGE_THIS_SECRET",
 
     resave: false,
 
@@ -494,8 +512,7 @@ app.use(
       sameSite: "lax",
 
       secure:
-        process.env.NODE_ENV ===
-        "production",
+        process.env.NODE_ENV === "production",
 
       maxAge:
         8 * 60 * 60 * 1000
@@ -555,16 +572,16 @@ app.get(
     res.json({
       settings: {
         store_name:
-          settings.store_name,
+          settings.store_name || "",
 
         slogan:
-          settings.slogan,
+          settings.slogan || "",
 
         secondary_slogan:
-          settings.secondary_slogan,
+          settings.secondary_slogan || "",
 
         whatsapp_number:
-          settings.whatsapp_number
+          settings.whatsapp_number || ""
       },
 
       priceRanges: [
@@ -618,40 +635,42 @@ app.get(
         : "AVAILABLE"
     ];
 
-    const ranges = {
-      1: [1000, 10000],
-      2: [10000, 20000],
-      3: [20000, 30000],
-      4: [30000, 40000],
-      5: [40000, 50000],
-      6: [50000, 60000],
-      7: [60000, 70000],
-      8: [70000, 80000],
-      9: [80000, 90000],
-      10: [90000, 100000],
-      11: [100000, 200000],
-      12: [200000, 300000],
-      13: [300000, 400000],
-      14: [400000, 500000],
-      15: [500000, 600000],
-      16: [600000, 700000],
-      17: [700000, 800000],
-      18: [800000, 900000],
-      19: [900000, 1000000]
-    };
-
     if (
       !sold &&
-      range !== "all" &&
-      ranges[range]
+      range !== "all"
     ) {
-      sql +=
-        " AND price >= ? AND price <= ?";
+      const ranges = {
+        1: [1000, 10000],
+        2: [10000, 20000],
+        3: [20000, 30000],
+        4: [30000, 40000],
+        5: [40000, 50000],
+        6: [50000, 60000],
+        7: [60000, 70000],
+        8: [70000, 80000],
+        9: [80000, 90000],
+        10: [90000, 100000],
 
-      params.push(
-        ranges[range][0],
-        ranges[range][1]
-      );
+        11: [100000, 200000],
+        12: [200000, 300000],
+        13: [300000, 400000],
+        14: [400000, 500000],
+        15: [500000, 600000],
+        16: [600000, 700000],
+        17: [700000, 800000],
+        18: [800000, 900000],
+        19: [900000, 1000000]
+      };
+
+      if (ranges[range]) {
+        sql +=
+          " AND price >= ? AND price <= ?";
+
+        params.push(
+          ranges[range][0],
+          ranges[range][1]
+        );
+      }
     }
 
     sql += sold
@@ -688,8 +707,7 @@ app.post(
 
     if (
       !admin ||
-      String(username || "") !==
-        admin.username ||
+      username !== admin.username ||
       !verifyPassword(
         String(password || ""),
         admin.password_hash
@@ -721,11 +739,27 @@ app.post(
   "/api/admin/logout",
   auth,
   (req, res) => {
-    req.session.destroy(() => {
-      res.json({
-        ok: true
-      });
-    });
+    req.session.destroy(
+      err => {
+        if (err) {
+          console.error(
+            "Session destroy error:",
+            err
+          );
+
+          return res
+            .status(500)
+            .json({
+              error:
+                "Logout failed"
+            });
+        }
+
+        res.json({
+          ok: true
+        });
+      }
+    );
   }
 );
 
@@ -766,36 +800,41 @@ app.get(
     const available =
       sqlGet(
         `
-        SELECT COUNT(*) c
-        FROM accounts
-        WHERE status='AVAILABLE'
+          SELECT COUNT(*) c
+          FROM accounts
+          WHERE status='AVAILABLE'
         `
       ).c;
 
     const sold =
       sqlGet(
         `
-        SELECT COUNT(*) c
-        FROM accounts
-        WHERE status='SOLD'
+          SELECT COUNT(*) c
+          FROM accounts
+          WHERE status='SOLD'
         `
       ).c;
 
     const featured =
       sqlGet(
         `
-        SELECT COUNT(*) c
-        FROM accounts
-        WHERE featured=1
+          SELECT COUNT(*) c
+          FROM accounts
+          WHERE featured=1
         `
       ).c;
 
     const value =
       sqlGet(
         `
-        SELECT COALESCE(SUM(price),0) v
-        FROM accounts
-        WHERE status='AVAILABLE'
+          SELECT COALESCE(
+            SUM(price),
+            0
+          ) v
+
+          FROM accounts
+
+          WHERE status='AVAILABLE'
         `
       ).v;
 
@@ -827,9 +866,13 @@ app.get(
     res.json(
       sqlAll(
         `
-        SELECT *
-        FROM accounts
-        ORDER BY updated_at DESC, id DESC
+          SELECT *
+
+          FROM accounts
+
+          ORDER BY
+            updated_at DESC,
+            id DESC
         `
       )
     );
@@ -854,7 +897,9 @@ function validateAccount(body) {
     ).trim();
 
   const price =
-    Number(body.price);
+    Number(
+      body.price
+    );
 
   const image_url =
     driveToImageUrl(
@@ -886,37 +931,37 @@ function validateAccount(body) {
     level:
       String(
         body.level || ""
-      ),
+      ).trim(),
 
     fashion:
       String(
         body.fashion || ""
-      ),
+      ).trim(),
 
     evo_guns:
       String(
         body.evo_guns || ""
-      ),
+      ).trim(),
 
     emotes:
       String(
         body.emotes || ""
-      ),
+      ).trim(),
 
     likes:
       String(
         body.likes || ""
-      ),
+      ).trim(),
 
     bind_info:
       String(
         body.bind_info || ""
-      ),
+      ).trim(),
 
     description:
       String(
         body.description || ""
-      ),
+      ).trim(),
 
     featured:
       body.featured
@@ -946,9 +991,8 @@ app.post(
           req.body
         );
 
-      const result =
-        db.prepare(
-          `
+      const stmt =
+        db.prepare(`
           INSERT INTO accounts (
             title,
             game,
@@ -982,19 +1026,24 @@ app.post(
             @status,
             CURRENT_TIMESTAMP
           )
-          `
-        )
-        .run({
-          title: a.title,
+        `);
 
-          game: a.game,
+      const result =
+        stmt.run({
+          title:
+            a.title,
 
-          price: a.price,
+          game:
+            a.game,
+
+          price:
+            a.price,
 
           image_url:
             a.image_url,
 
-          level: a.level,
+          level:
+            a.level,
 
           fashion:
             a.fashion,
@@ -1076,8 +1125,7 @@ app.put(
       }
 
       const result =
-        db.prepare(
-          `
+        db.prepare(`
           UPDATE accounts
 
           SET
@@ -1097,14 +1145,15 @@ app.put(
             updated_at=CURRENT_TIMESTAMP
 
           WHERE id=@id
-          `
-        )
-        .run({
-          title: a.title,
+        `).run({
+          title:
+            a.title,
 
-          game: a.game,
+          game:
+            a.game,
 
-          price: a.price,
+          price:
+            a.price,
 
           image_url:
             a.image_url,
@@ -1193,10 +1242,7 @@ app.delete(
 
     const result =
       sqlRun(
-        `
-        DELETE FROM accounts
-        WHERE id=?
-        `,
+        "DELETE FROM accounts WHERE id=?",
         [id]
       );
 
@@ -1217,11 +1263,6 @@ app.patch(
   "/api/admin/accounts/:id/status",
   auth,
   (req, res) => {
-    const status =
-      req.body.status === "SOLD"
-        ? "SOLD"
-        : "AVAILABLE";
-
     const id =
       Number(
         req.params.id
@@ -1239,16 +1280,21 @@ app.patch(
         });
     }
 
+    const status =
+      req.body.status === "SOLD"
+        ? "SOLD"
+        : "AVAILABLE";
+
     const result =
       sqlRun(
         `
-        UPDATE accounts
+          UPDATE accounts
 
-        SET
-          status=?,
-          updated_at=CURRENT_TIMESTAMP
+          SET
+            status=?,
+            updated_at=CURRENT_TIMESTAMP
 
-        WHERE id=?
+          WHERE id=?
         `,
         [
           status,
@@ -1306,6 +1352,45 @@ app.put(
 
 /*
 ========================================================
+GET ADMIN SETTINGS
+========================================================
+*/
+
+app.get(
+  "/api/admin/settings",
+  auth,
+  (req, res) => {
+    const rows =
+      sqlAll(
+        "SELECT key,value FROM settings"
+      );
+
+    const settings =
+      Object.fromEntries(
+        rows.map(row => [
+          row.key,
+          row.value
+        ])
+      );
+
+    res.json({
+      whatsapp_number:
+        settings.whatsapp_number || "",
+
+      store_name:
+        settings.store_name || "",
+
+      slogan:
+        settings.slogan || "",
+
+      secondary_slogan:
+        settings.secondary_slogan || ""
+    });
+  }
+);
+
+/*
+========================================================
 CHANGE PASSWORD
 ========================================================
 */
@@ -1317,13 +1402,13 @@ app.post(
     const current =
       String(
         req.body.currentPassword ||
-          ""
+        ""
       );
 
     const next =
       String(
         req.body.newPassword ||
-          ""
+        ""
       );
 
     const admin =
@@ -1346,9 +1431,7 @@ app.post(
         });
     }
 
-    if (
-      next.length < 10
-    ) {
+    if (next.length < 10) {
       return res
         .status(400)
         .json({
@@ -1359,11 +1442,11 @@ app.post(
 
     sqlRun(
       `
-      UPDATE admin
+        UPDATE admin
 
-      SET password_hash=?
+        SET password_hash=?
 
-      WHERE id=1
+        WHERE id=1
       `,
       [
         hashPassword(next)
@@ -1378,7 +1461,49 @@ app.post(
 
 /*
 ========================================================
-FRONTEND ROUTES
+ADMIN USERNAME
+========================================================
+*/
+
+app.get(
+  "/api/admin/profile",
+  auth,
+  (req, res) => {
+    const admin =
+      sqlGet(
+        `
+          SELECT
+            id,
+            username
+
+          FROM admin
+
+          WHERE id=1
+        `
+      );
+
+    if (!admin) {
+      return res
+        .status(404)
+        .json({
+          error:
+            "Admin not found"
+        });
+    }
+
+    res.json({
+      id:
+        admin.id,
+
+      username:
+        admin.username
+    });
+  }
+);
+
+/*
+========================================================
+FRONTEND ROUTE
 ========================================================
 */
 
@@ -1397,7 +1522,7 @@ app.get(
 
 /*
 ========================================================
-FRONTEND FALLBACK
+EXPRESS FALLBACK
 ========================================================
 */
 
@@ -1422,18 +1547,24 @@ app.use(
 
 /*
 ========================================================
-404 HANDLER
+404 API
 ========================================================
 */
 
 app.use(
-  (req, res) => {
-    res
-      .status(404)
-      .json({
-        error:
-          "Not found"
-      });
+  (req, res, next) => {
+    if (
+      req.path.startsWith("/api/")
+    ) {
+      return res
+        .status(404)
+        .json({
+          error:
+            "API endpoint not found"
+        });
+    }
+
+    next();
   }
 );
 
@@ -1444,11 +1575,20 @@ ERROR HANDLER
 */
 
 app.use(
-  (err, req, res, next) => {
+  (
+    err,
+    req,
+    res,
+    next
+  ) => {
     console.error(
       "Server error:",
       err
     );
+
+    if (res.headersSent) {
+      return next(err);
+    }
 
     res
       .status(500)
@@ -1491,22 +1631,26 @@ function shutdown(signal) {
     `${signal} received. Shutting down...`
   );
 
-  server.close(() => {
-    try {
-      db.close();
+  server.close(
+    () => {
+      try {
+        if (db) {
+          db.close();
+        }
 
-      console.log(
-        "Database closed."
-      );
-    } catch (err) {
-      console.error(
-        "Database close error:",
-        err.message
-      );
+        console.log(
+          "Database closed."
+        );
+      } catch (err) {
+        console.error(
+          "Database close error:",
+          err.message
+        );
+      }
+
+      process.exit(0);
     }
-
-    process.exit(0);
-  });
+  );
 }
 
 process.on(
@@ -1518,4 +1662,3 @@ process.on(
   "SIGTERM",
   () => shutdown("SIGTERM")
 );
-```
