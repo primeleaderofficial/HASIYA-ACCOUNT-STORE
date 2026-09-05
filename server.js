@@ -4,10 +4,14 @@ const helmet = require("helmet");
 const crypto = require("crypto");
 const { Pool } = require("pg");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
 
 app.set("trust proxy", 1);
+
+const PORT = process.env.PORT || 10000;
+const ROOT = __dirname;
 
 app.use(
   helmet({
@@ -18,7 +22,9 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-const PORT = process.env.PORT || 10000;
+/* =========================================================
+   DATABASE
+========================================================= */
 
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL is missing.");
@@ -73,7 +79,7 @@ function normalizeAccount(row) {
   return {
     id: Number(row.id),
     title: row.title || "",
-    game: row.game || "",
+    game: row.game || "Free Fire",
     price: Number(row.price || 0),
     image_url: row.image_url || "",
     level: row.level || "",
@@ -90,9 +96,7 @@ function normalizeAccount(row) {
 }
 
 function hashPassword(password, salt) {
-  return crypto
-    .scryptSync(password, salt, 64)
-    .toString("hex");
+  return crypto.scryptSync(password, salt, 64).toString("hex");
 }
 
 function createPassword(password) {
@@ -107,9 +111,9 @@ function createPassword(password) {
 function verifyPassword(password, salt, storedHash) {
   if (!salt || !storedHash) return false;
 
-  const calculated = hashPassword(password, salt);
-
   try {
+    const calculated = hashPassword(password, salt);
+
     return crypto.timingSafeEqual(
       Buffer.from(calculated, "hex"),
       Buffer.from(storedHash, "hex")
@@ -154,22 +158,21 @@ class PostgreSQLSessionStore extends session.Store {
 
   async set(sid, sess, callback) {
     try {
-      let expire = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      let expire = new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000
+      );
 
       if (sess.cookie && sess.cookie.expires) {
         expire = new Date(sess.cookie.expires);
       }
 
       await pool.query(
-        `
-        INSERT INTO user_sessions (sid, sess, expire)
-        VALUES ($1, $2::jsonb, $3)
-        ON CONFLICT (sid)
-        DO UPDATE SET
-          sess = EXCLUDED.sess,
-          expire = EXCLUDED.expire
-        `,
-        [sid, JSON.stringify(sess), expire]
+        "INSERT INTO user_sessions (sid, sess, expire) VALUES ($1, $2::jsonb, $3) ON CONFLICT (sid) DO UPDATE SET sess = EXCLUDED.sess, expire = EXCLUDED.expire",
+        [
+          sid,
+          JSON.stringify(sess),
+          expire
+        ]
       );
 
       callback(null);
@@ -193,7 +196,9 @@ class PostgreSQLSessionStore extends session.Store {
 
   async touch(sid, sess, callback) {
     try {
-      let expire = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      let expire = new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000
+      );
 
       if (sess.cookie && sess.cookie.expires) {
         expire = new Date(sess.cookie.expires);
@@ -218,14 +223,18 @@ class PostgreSQLSessionStore extends session.Store {
 app.use(
   session({
     store: new PostgreSQLSessionStore(),
+
     secret:
       process.env.SESSION_SECRET ||
       "hasiya-account-store-session-secret-change-this",
+
     resave: false,
     saveUninitialized: false,
     rolling: true,
     proxy: true,
+
     name: "hasiya_admin_session",
+
     cookie: {
       httpOnly: true,
       secure: true,
@@ -246,95 +255,68 @@ async function initDatabase() {
 
   console.log("PostgreSQL connection successful.");
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS accounts (
-      id SERIAL PRIMARY KEY,
-      title TEXT NOT NULL,
-      game TEXT NOT NULL DEFAULT 'Free Fire',
-      price NUMERIC(12,2) NOT NULL DEFAULT 0,
-      image_url TEXT DEFAULT '',
-      level TEXT DEFAULT '',
-      fashion TEXT DEFAULT '',
-      evo_guns TEXT DEFAULT '',
-      emotes TEXT DEFAULT '',
-      likes TEXT DEFAULT '',
-      bind_info TEXT DEFAULT '',
-      description TEXT DEFAULT '',
-      featured BOOLEAN NOT NULL DEFAULT FALSE,
-      status TEXT NOT NULL DEFAULT 'AVAILABLE',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
+  /* ACCOUNTS */
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL DEFAULT ''
-    )
-  `);
+  await pool.query(
+    "CREATE TABLE IF NOT EXISTS accounts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, game TEXT NOT NULL DEFAULT 'Free Fire', price NUMERIC(12,2) NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', level TEXT DEFAULT '', fashion TEXT DEFAULT '', evo_guns TEXT DEFAULT '', emotes TEXT DEFAULT '', likes TEXT DEFAULT '', bind_info TEXT DEFAULT '', description TEXT DEFAULT '', featured BOOLEAN NOT NULL DEFAULT FALSE, status TEXT NOT NULL DEFAULT 'AVAILABLE', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+  );
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS admin_users (
-      id SERIAL PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      password_salt TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
+  /* SETTINGS */
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS user_sessions (
-      sid TEXT PRIMARY KEY,
-      sess JSONB NOT NULL,
-      expire TIMESTAMPTZ NOT NULL
-    )
-  `);
+  await pool.query(
+    "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')"
+  );
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS user_sessions_expire_idx
-    ON user_sessions(expire)
-  `);
+  /* ADMIN */
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS accounts_status_idx
-    ON accounts(status)
-  `);
+  await pool.query(
+    "CREATE TABLE IF NOT EXISTS admin_users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+  );
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS accounts_price_idx
-    ON accounts(price)
-  `);
+  /* SESSIONS */
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS accounts_featured_idx
-    ON accounts(featured)
-  `);
+  await pool.query(
+    "CREATE TABLE IF NOT EXISTS user_sessions (sid TEXT PRIMARY KEY, sess JSONB NOT NULL, expire TIMESTAMPTZ NOT NULL)"
+  );
 
-  /* Default settings */
+  /* INDEXES */
 
-  const settings = [
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS user_sessions_expire_idx ON user_sessions(expire)"
+  );
+
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS accounts_status_idx ON accounts(status)"
+  );
+
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS accounts_price_idx ON accounts(price)"
+  );
+
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS accounts_featured_idx ON accounts(featured)"
+  );
+
+  /* DEFAULT SETTINGS */
+
+  const defaultSettings = [
     ["store_name", "HASIYA ACCOUNT STORE"],
     ["slogan", "Premium Gaming Accounts"],
     ["secondary_slogan", "Trusted • Secure • Fast"],
     ["whatsapp_number", ""]
   ];
 
-  for (const [key, value] of settings) {
+  for (const item of defaultSettings) {
     await pool.query(
-      `
-      INSERT INTO settings (key, value)
-      VALUES ($1, $2)
-      ON CONFLICT (key) DO NOTHING
-      `,
-      [key, value]
+      "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING",
+      item
     );
   }
 
-  /* Default admin */
+  /* DEFAULT ADMIN */
 
   const adminResult = await pool.query(
-    "SELECT id FROM admin_users WHERE username = $1",
+    "SELECT id FROM admin_users WHERE username = $1 LIMIT 1",
     ["admin"]
   );
 
@@ -345,11 +327,7 @@ async function initDatabase() {
     const password = createPassword(defaultPassword);
 
     await pool.query(
-      `
-      INSERT INTO admin_users
-      (username, password_hash, password_salt)
-      VALUES ($1, $2, $3)
-      `,
+      "INSERT INTO admin_users (username, password_hash, password_salt) VALUES ($1, $2, $3)",
       [
         "admin",
         password.hash,
@@ -361,18 +339,21 @@ async function initDatabase() {
     console.log("Username: admin");
   }
 
-  /* Remove expired sessions */
-
   await pool.query(
     "DELETE FROM user_sessions WHERE expire < NOW()"
   );
 
-  console.log("PostgreSQL database schema initialized.");
-  console.log("Default settings initialized.");
+  console.log(
+    "PostgreSQL database schema initialized."
+  );
+
+  console.log(
+    "Default settings initialized."
+  );
 }
 
 /* =========================================================
-   AUTH MIDDLEWARE
+   AUTH
 ========================================================= */
 
 function requireAdmin(req, res, next) {
@@ -384,6 +365,12 @@ function requireAdmin(req, res, next) {
     return next();
   }
 
+  console.log(
+    "Unauthorized request:",
+    req.method,
+    req.originalUrl
+  );
+
   return res.status(401).json({
     success: false,
     authenticated: false,
@@ -392,7 +379,7 @@ function requireAdmin(req, res, next) {
 }
 
 /* =========================================================
-   PUBLIC STORE API
+   PUBLIC STORE
 ========================================================= */
 
 app.get(
@@ -424,30 +411,27 @@ app.get(
 app.get(
   "/api/accounts",
   asyncHandler(async (req, res) => {
-    const sold =
+    const isSold =
       String(req.query.sold || "") === "1" ||
       String(req.query.status || "").toUpperCase() === "SOLD";
 
     const range = Number(req.query.range || 0);
 
-    let sql = `
-      SELECT *
-      FROM accounts
-      WHERE status = $1
-    `;
+    let sql =
+      "SELECT * FROM accounts WHERE status = $1";
 
-    const params = [sold ? "SOLD" : "AVAILABLE"];
+    const params = [
+      isSold ? "SOLD" : "AVAILABLE"
+    ];
 
-    if (!sold && range > 0) {
+    if (!isSold && range > 0) {
       const selectedRange = PRICE_RANGES.find(
-        r => r.id === range
+        item => item.id === range
       );
 
       if (selectedRange) {
-        sql += `
-          AND price >= $2
-          AND price <= $3
-        `;
+        sql +=
+          " AND price >= $2 AND price <= $3";
 
         params.push(
           selectedRange.min,
@@ -456,19 +440,21 @@ app.get(
       }
     }
 
-    if (!sold) {
-      sql += `
-        ORDER BY featured DESC, created_at DESC, id DESC
-      `;
+    if (isSold) {
+      sql +=
+        " ORDER BY created_at DESC, id DESC";
     } else {
-      sql += `
-        ORDER BY created_at DESC, id DESC
-      `;
+      sql +=
+        " ORDER BY featured DESC, created_at DESC, id DESC";
     }
 
-    const result = await pool.query(sql, params);
+    const result = await pool.query(
+      sql,
+      params
+    );
 
-    const accounts = result.rows.map(normalizeAccount);
+    const accounts =
+      result.rows.map(normalizeAccount);
 
     res.json({
       success: true,
@@ -498,17 +484,13 @@ app.post(
       return res.status(400).json({
         success: false,
         authenticated: false,
-        error: "Username and password are required."
+        error:
+          "Username and password are required."
       });
     }
 
     const result = await pool.query(
-      `
-      SELECT *
-      FROM admin_users
-      WHERE username = $1
-      LIMIT 1
-      `,
+      "SELECT * FROM admin_users WHERE username = $1 LIMIT 1",
       [username]
     );
 
@@ -516,7 +498,8 @@ app.post(
       return res.status(401).json({
         success: false,
         authenticated: false,
-        error: "Invalid username or password."
+        error:
+          "Invalid username or password."
       });
     }
 
@@ -532,33 +515,41 @@ app.post(
       return res.status(401).json({
         success: false,
         authenticated: false,
-        error: "Invalid username or password."
+        error:
+          "Invalid username or password."
       });
     }
 
     await new Promise((resolve, reject) => {
       req.session.regenerate(error => {
-        if (error) reject(error);
-        else resolve();
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
       });
     });
 
     req.session.admin = {
       authenticated: true,
-      id: admin.id,
+      id: Number(admin.id),
       username: admin.username,
       loginTime: Date.now()
     };
 
     await new Promise((resolve, reject) => {
       req.session.save(error => {
-        if (error) reject(error);
-        else resolve();
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
       });
     });
 
     console.log(
-      `Admin login successful: ${username}`
+      "Admin login successful:",
+      username
     );
 
     res.json({
@@ -602,19 +593,22 @@ app.get(
 app.post(
   "/api/admin/logout",
   asyncHandler(async (req, res) => {
-    await new Promise(resolve => {
-      if (!req.session) {
-        return resolve();
+    if (req.session) {
+      await new Promise(resolve => {
+        req.session.destroy(() => {
+          resolve();
+        });
+      });
+    }
+
+    res.clearCookie(
+      "hasiya_admin_session",
+      {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax"
       }
-
-      req.session.destroy(() => resolve());
-    });
-
-    res.clearCookie("hasiya_admin_session", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax"
-    });
+    );
 
     res.json({
       success: true,
@@ -624,28 +618,16 @@ app.post(
 );
 
 /* =========================================================
-   ADMIN DASHBOARD
+   DASHBOARD
 ========================================================= */
 
 app.get(
   "/api/admin/dashboard",
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const result = await pool.query(`
-      SELECT
-        COUNT(*)::int AS total,
-        COUNT(*) FILTER (
-          WHERE status = 'AVAILABLE'
-        )::int AS available,
-        COUNT(*) FILTER (
-          WHERE status = 'SOLD'
-        )::int AS sold,
-        COUNT(*) FILTER (
-          WHERE featured = TRUE
-        )::int AS featured,
-        COALESCE(SUM(price), 0) AS total_value
-      FROM accounts
-    `);
+    const result = await pool.query(
+      "SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status = 'AVAILABLE')::int AS available, COUNT(*) FILTER (WHERE status = 'SOLD')::int AS sold, COUNT(*) FILTER (WHERE featured = TRUE)::int AS featured, COALESCE(SUM(price), 0) AS total_value FROM accounts"
+    );
 
     const row = result.rows[0];
 
@@ -654,7 +636,8 @@ app.get(
       available: Number(row.available || 0),
       sold: Number(row.sold || 0),
       featured: Number(row.featured || 0),
-      totalListedValue: Number(row.total_value || 0)
+      totalListedValue:
+        Number(row.total_value || 0)
     };
 
     res.json({
@@ -666,20 +649,19 @@ app.get(
 );
 
 /* =========================================================
-   ADMIN ACCOUNTS LIST
+   ADMIN ACCOUNT LIST
 ========================================================= */
 
 app.get(
   "/api/admin/accounts",
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const result = await pool.query(`
-      SELECT *
-      FROM accounts
-      ORDER BY created_at DESC, id DESC
-    `);
+    const result = await pool.query(
+      "SELECT * FROM accounts ORDER BY created_at DESC, id DESC"
+    );
 
-    const accounts = result.rows.map(normalizeAccount);
+    const accounts =
+      result.rows.map(normalizeAccount);
 
     res.json({
       success: true,
@@ -690,28 +672,64 @@ app.get(
 );
 
 /* =========================================================
-   VALIDATE ACCOUNT
+   ACCOUNT PAYLOAD
 ========================================================= */
 
 function accountPayload(body) {
+  const price = Number(body.price || 0);
+
   return {
-    title: String(body.title || "").trim(),
-    game: String(body.game || "Free Fire").trim(),
-    price: Number(body.price || 0),
-    image_url: String(body.image_url || "").trim(),
-    level: String(body.level || "").trim(),
-    fashion: String(body.fashion || "").trim(),
-    evo_guns: String(body.evo_guns || "").trim(),
-    emotes: String(body.emotes || "").trim(),
-    likes: String(body.likes || "").trim(),
-    bind_info: String(body.bind_info || "").trim(),
-    description: String(body.description || "").trim(),
+    title: String(
+      body.title || ""
+    ).trim(),
+
+    game: String(
+      body.game || "Free Fire"
+    ).trim(),
+
+    price,
+
+    image_url: String(
+      body.image_url || ""
+    ).trim(),
+
+    level: String(
+      body.level || ""
+    ).trim(),
+
+    fashion: String(
+      body.fashion || ""
+    ).trim(),
+
+    evo_guns: String(
+      body.evo_guns || ""
+    ).trim(),
+
+    emotes: String(
+      body.emotes || ""
+    ).trim(),
+
+    likes: String(
+      body.likes || ""
+    ).trim(),
+
+    bind_info: String(
+      body.bind_info || ""
+    ).trim(),
+
+    description: String(
+      body.description || ""
+    ).trim(),
+
     featured:
       body.featured === true ||
       body.featured === "true" ||
       body.featured === "1",
+
     status:
-      String(body.status || "AVAILABLE").toUpperCase() === "SOLD"
+      String(
+        body.status || "AVAILABLE"
+      ).toUpperCase() === "SOLD"
         ? "SOLD"
         : "AVAILABLE"
   };
@@ -725,16 +743,24 @@ app.post(
   "/api/admin/accounts",
   requireAdmin,
   asyncHandler(async (req, res) => {
+    console.log(
+      "ADD ACCOUNT REQUEST"
+    );
+
     const a = accountPayload(req.body);
 
     if (!a.title) {
       return res.status(400).json({
         success: false,
-        error: "Account title is required."
+        error:
+          "Account title is required."
       });
     }
 
-    if (!Number.isFinite(a.price) || a.price < 0) {
+    if (
+      !Number.isFinite(a.price) ||
+      a.price < 0
+    ) {
       return res.status(400).json({
         success: false,
         error: "Invalid price."
@@ -742,27 +768,7 @@ app.post(
     }
 
     const result = await pool.query(
-      `
-      INSERT INTO accounts (
-        title,
-        game,
-        price,
-        image_url,
-        level,
-        fashion,
-        evo_guns,
-        emotes,
-        likes,
-        bind_info,
-        description,
-        featured,
-        status
-      )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
-      )
-      RETURNING *
-      `,
+      "INSERT INTO accounts (title, game, price, image_url, level, fashion, evo_guns, emotes, likes, bind_info, description, featured, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *",
       [
         a.title,
         a.game,
@@ -780,9 +786,15 @@ app.post(
       ]
     );
 
+    console.log(
+      "ACCOUNT CREATED:",
+      result.rows[0].id
+    );
+
     res.json({
       success: true,
-      account: normalizeAccount(result.rows[0])
+      account:
+        normalizeAccount(result.rows[0])
     });
   })
 );
@@ -809,30 +821,23 @@ app.put(
     if (!a.title) {
       return res.status(400).json({
         success: false,
-        error: "Account title is required."
+        error:
+          "Account title is required."
+      });
+    }
+
+    if (
+      !Number.isFinite(a.price) ||
+      a.price < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid price."
       });
     }
 
     const result = await pool.query(
-      `
-      UPDATE accounts
-      SET
-        title = $1,
-        game = $2,
-        price = $3,
-        image_url = $4,
-        level = $5,
-        fashion = $6,
-        evo_guns = $7,
-        emotes = $8,
-        likes = $9,
-        bind_info = $10,
-        description = $11,
-        featured = $12,
-        status = $13
-      WHERE id = $14
-      RETURNING *
-      `,
+      "UPDATE accounts SET title=$1, game=$2, price=$3, image_url=$4, level=$5, fashion=$6, evo_guns=$7, emotes=$8, likes=$9, bind_info=$10, description=$11, featured=$12, status=$13 WHERE id=$14 RETURNING *",
       [
         a.title,
         a.game,
@@ -860,13 +865,14 @@ app.put(
 
     res.json({
       success: true,
-      account: normalizeAccount(result.rows[0])
+      account:
+        normalizeAccount(result.rows[0])
     });
   })
 );
 
 /* =========================================================
-   CHANGE STATUS
+   STATUS
 ========================================================= */
 
 app.patch(
@@ -875,19 +881,22 @@ app.patch(
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
 
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid account ID."
+      });
+    }
+
     const status =
-      String(req.body.status || "")
-        .toUpperCase() === "SOLD"
+      String(
+        req.body.status || ""
+      ).toUpperCase() === "SOLD"
         ? "SOLD"
         : "AVAILABLE";
 
     const result = await pool.query(
-      `
-      UPDATE accounts
-      SET status = $1
-      WHERE id = $2
-      RETURNING *
-      `,
+      "UPDATE accounts SET status=$1 WHERE id=$2 RETURNING *",
       [status, id]
     );
 
@@ -900,13 +909,14 @@ app.patch(
 
     res.json({
       success: true,
-      account: normalizeAccount(result.rows[0])
+      account:
+        normalizeAccount(result.rows[0])
     });
   })
 );
 
 /* =========================================================
-   DELETE ACCOUNT
+   DELETE
 ========================================================= */
 
 app.delete(
@@ -915,12 +925,15 @@ app.delete(
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
 
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid account ID."
+      });
+    }
+
     const result = await pool.query(
-      `
-      DELETE FROM accounts
-      WHERE id = $1
-      RETURNING id
-      `,
+      "DELETE FROM accounts WHERE id=$1 RETURNING id",
       [id]
     );
 
@@ -939,7 +952,7 @@ app.delete(
 );
 
 /* =========================================================
-   SETTINGS UPDATE
+   SETTINGS
 ========================================================= */
 
 app.put(
@@ -947,31 +960,30 @@ app.put(
   requireAdmin,
   asyncHandler(async (req, res) => {
     const values = {
-      whatsapp_number: String(
-        req.body.whatsapp_number || ""
-      ).trim(),
+      whatsapp_number:
+        String(
+          req.body.whatsapp_number || ""
+        ).trim(),
 
-      store_name: String(
-        req.body.store_name || ""
-      ).trim(),
+      store_name:
+        String(
+          req.body.store_name || ""
+        ).trim(),
 
-      slogan: String(
-        req.body.slogan || ""
-      ).trim(),
+      slogan:
+        String(
+          req.body.slogan || ""
+        ).trim(),
 
-      secondary_slogan: String(
-        req.body.secondary_slogan || ""
-      ).trim()
+      secondary_slogan:
+        String(
+          req.body.secondary_slogan || ""
+        ).trim()
     };
 
     for (const [key, value] of Object.entries(values)) {
       await pool.query(
-        `
-        INSERT INTO settings (key, value)
-        VALUES ($1, $2)
-        ON CONFLICT (key)
-        DO UPDATE SET value = EXCLUDED.value
-        `,
+        "INSERT INTO settings (key,value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
         [key, value]
       );
     }
@@ -990,37 +1002,37 @@ app.post(
   "/api/admin/password",
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const currentPassword = String(
-      req.body.currentPassword || ""
-    );
+    const currentPassword =
+      String(
+        req.body.currentPassword || ""
+      );
 
-    const newPassword = String(
-      req.body.newPassword || ""
-    );
+    const newPassword =
+      String(
+        req.body.newPassword || ""
+      );
 
     if (newPassword.length < 6) {
       return res.status(400).json({
         success: false,
-        error: "New password must be at least 6 characters."
+        error:
+          "New password must be at least 6 characters."
       });
     }
 
-    const adminId = req.session.admin.id;
+    const adminId =
+      req.session.admin.id;
 
     const result = await pool.query(
-      `
-      SELECT *
-      FROM admin_users
-      WHERE id = $1
-      LIMIT 1
-      `,
+      "SELECT * FROM admin_users WHERE id=$1 LIMIT 1",
       [adminId]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        error: "Admin account not found."
+        error:
+          "Admin account not found."
       });
     }
 
@@ -1035,20 +1047,16 @@ app.post(
     if (!valid) {
       return res.status(400).json({
         success: false,
-        error: "Current password is incorrect."
+        error:
+          "Current password is incorrect."
       });
     }
 
-    const password = createPassword(newPassword);
+    const password =
+      createPassword(newPassword);
 
     await pool.query(
-      `
-      UPDATE admin_users
-      SET
-        password_hash = $1,
-        password_salt = $2
-      WHERE id = $3
-      `,
+      "UPDATE admin_users SET password_hash=$1, password_salt=$2 WHERE id=$3",
       [
         password.hash,
         password.salt,
@@ -1079,34 +1087,101 @@ app.get(
 );
 
 /* =========================================================
+   WEBSITE ROUTES
+========================================================= */
+
+/*
+   Explicit routes are intentionally BEFORE static.
+*/
+
+app.get("/", (req, res) => {
+  const file = path.join(
+    ROOT,
+    "index.html"
+  );
+
+  if (!fs.existsSync(file)) {
+    return res.status(404).send(
+      "index.html not found in project root."
+    );
+  }
+
+  res.sendFile(file);
+});
+
+app.get("/index.html", (req, res) => {
+  res.sendFile(
+    path.join(ROOT, "index.html")
+  );
+});
+
+app.get("/admin", (req, res) => {
+  const file = path.join(
+    ROOT,
+    "admin.html"
+  );
+
+  if (!fs.existsSync(file)) {
+    return res.status(404).send(
+      "admin.html not found in project root."
+    );
+  }
+
+  res.sendFile(file);
+});
+
+app.get("/admin.html", (req, res) => {
+  res.sendFile(
+    path.join(ROOT, "admin.html")
+  );
+});
+
+/* =========================================================
    STATIC FILES
 ========================================================= */
 
 app.use(
-  express.static(
-    path.join(__dirname),
-    {
-      index: "index.html"
-    }
-  )
+  express.static(ROOT, {
+    index: false
+  })
 );
-
-/* =========================================================
-   ADMIN PAGE
-========================================================= */
-
-app.get("/admin", (req, res) => {
-  res.sendFile(
-    path.join(__dirname, "admin.html")
-  );
-});
 
 /* =========================================================
    ERROR HANDLER
 ========================================================= */
 
 app.use((err, req, res, next) => {
-  console.error("SERVER ERROR:", err);
+  console.error(
+    "================================="
+  );
+
+  console.error(
+    "SERVER ERROR"
+  );
+
+  console.error(
+    "METHOD:",
+    req.method
+  );
+
+  console.error(
+    "URL:",
+    req.originalUrl
+  );
+
+  console.error(
+    "MESSAGE:",
+    err.message
+  );
+
+  console.error(
+    "STACK:",
+    err.stack
+  );
+
+  console.error(
+    "================================="
+  );
 
   if (res.headersSent) {
     return next(err);
@@ -1114,7 +1189,9 @@ app.use((err, req, res, next) => {
 
   res.status(500).json({
     success: false,
-    error: "Internal server error."
+    error:
+      err.message ||
+      "Internal server error."
   });
 });
 
@@ -1124,24 +1201,80 @@ app.use((err, req, res, next) => {
 
 async function start() {
   try {
+    console.log(
+      "================================="
+    );
+
+    console.log(
+      "HASIYA ACCOUNT STORE STARTING..."
+    );
+
+    console.log(
+      "Project root:",
+      ROOT
+    );
+
+    console.log(
+      "index.html:",
+      fs.existsSync(
+        path.join(ROOT, "index.html")
+      )
+    );
+
+    console.log(
+      "admin.html:",
+      fs.existsSync(
+        path.join(ROOT, "admin.html")
+      )
+    );
+
     await initDatabase();
 
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(
-        `HASIYA ACCOUNT STORE running on port ${PORT}`
-      );
-      console.log(
-        "Database: PostgreSQL"
-      );
-      console.log(
-        "Persistent PostgreSQL sessions enabled."
-      );
-    });
+    app.listen(
+      PORT,
+      "0.0.0.0",
+      () => {
+        console.log(
+          "================================="
+        );
+
+        console.log(
+          "HASIYA ACCOUNT STORE"
+        );
+
+        console.log(
+          "Server running on port:",
+          PORT
+        );
+
+        console.log(
+          "Database: PostgreSQL"
+        );
+
+        console.log(
+          "Main page: /"
+        );
+
+        console.log(
+          "Admin page: /admin"
+        );
+
+        console.log(
+          "Persistent sessions: ENABLED"
+        );
+
+        console.log(
+          "================================="
+        );
+      }
+    );
   } catch (error) {
     console.error(
       "DATABASE STARTUP FAILED:"
     );
+
     console.error(error);
+
     process.exit(1);
   }
 }
