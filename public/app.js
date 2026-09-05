@@ -1,1056 +1,979 @@
 const state = {
-accounts: [],
-sold: [],
-page: 1,
-range: "all",
-perPage: 20,
-settings: {},
-priceRanges: []
+  accounts: [],
+  sold: [],
+  page: 1,
+  range: 0,
+  perPage: 12,
+  settings: {},
+  priceRanges: []
 };
 
-const $ = (s) => document.querySelector(s);
+const $ = (selector) =>
+  document.querySelector(selector);
 
-/* =========================================
-MONEY
-========================================= */
+const $$ = (selector) =>
+  Array.from(document.querySelectorAll(selector));
 
-function money(n) {
-return "Rs. " + Number(n || 0).toLocaleString("en-LK");
-}
-
-/* =========================================
-WHATSAPP
-========================================= */
-
-function waUrl(account) {
-
-const number =
-String(state.settings.whatsapp_number || "")
-.replace(/\D/g, "");
-
-if (!number) return "#";
-
-const message =
-`Hi, I'm interested in buying ${account.title} - ${money(account.price)}.`;
-
-return `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
-}
-
-/* =========================================
-API
-========================================= */
+/* =========================================================
+   API
+========================================================= */
 
 async function get(url) {
+  const response = await fetch(url, {
+    method: "GET",
+    credentials: "same-origin",
+    cache: "no-store"
+  });
 
-try {
+  let data = {};
 
-```
-const response = await fetch(url, {
-  credentials: "same-origin"
-});
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
 
-const text = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+      `Request failed (${response.status})`
+    );
+  }
 
-let data = {};
-
-try {
-  data = JSON.parse(text);
-} catch {
-  data = {};
+  return data;
 }
 
-if (!response.ok) {
-  throw new Error(
-    data.error ||
-    data.message ||
-    `Request failed (${response.status})`
-  );
-}
-
-return data;
-```
-
-} catch (error) {
-
-```
-console.error("API ERROR:", url, error);
-
-throw error;
-```
-
-}
-}
-
-/* =========================================
-HTML ESCAPE
-========================================= */
+/* =========================================================
+   ESCAPE HTML
+========================================================= */
 
 function esc(value) {
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    (char) => {
+      const map = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      };
 
-return String(value ?? "").replace(
-/[&<>"']/g,
-(char) => ({
-"&": "&",
-"<": "<",
-">": ">",
-'"': """,
-"'": "'"
-})[char]
-);
-
+      return map[char];
+    }
+  );
 }
 
-/* =========================================
-ACCOUNT CARD
-========================================= */
+/* =========================================================
+   PRICE
+========================================================= */
 
-function card(account, sold = false) {
-
-const featured =
-Number(account.featured) === 1 ||
-account.featured === true;
-
-return ` <article
-   class="account-card"
-   data-id="${Number(account.id)}"
- >
-
-```
-  <img
-    class="account-img"
-    src="${esc(account.image_url)}"
-    alt="${esc(account.title)}"
-    loading="lazy"
-    onerror="
-      this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 800 450%22%3E%3Crect width=%22800%22 height=%22450%22 fill=%22%2307111e%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 fill=%22%237aa7d8%22 font-size=%2230%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22%3EImage unavailable%3C/text%3E%3C/svg%3E'
-    "
-  >
-
-  <div class="account-info">
-
-    <div class="account-top">
-
-      <div>
-
-        <div class="account-title">
-          ${esc(account.title)}
-        </div>
-
-        <div class="muted">
-          ${esc(account.game)}
-        </div>
-
-      </div>
-
-      <div class="price">
-        ${money(account.price)}
-      </div>
-
-    </div>
-
-
-    <span class="badge ${sold ? "sold" : ""}">
-
-      ${
-        sold
-          ? "SOLD OUT"
-          : featured
-            ? "FEATURED"
-            : "AVAILABLE"
-      }
-
-    </span>
-
-
-    <div class="specs">
-
-      <div class="spec">
-        Level
-        <b>${esc(account.level || "—")}</b>
-      </div>
-
-      <div class="spec">
-        Likes
-        <b>${esc(account.likes || "—")}</b>
-      </div>
-
-      <div class="spec">
-        Fashion
-        <b>${esc(account.fashion || "—")}</b>
-      </div>
-
-      <div class="spec">
-        Evo Guns
-        <b>${esc(account.evo_guns || "—")}</b>
-      </div>
-
-    </div>
-
-
-    <div class="account-actions">
-
-      <button
-        class="btn ghost details"
-        type="button"
-      >
-        VIEW DETAILS
-      </button>
-
-      ${
-        sold
-          ? ""
-          : `
-            <a
-              class="btn primary buy"
-              href="${waUrl(account)}"
-              target="_blank"
-              rel="noopener"
-            >
-              WHATSAPP
-            </a>
-          `
-      }
-
-    </div>
-
-  </div>
-
-</article>
-```
-
-`;
+function money(value) {
+  return Number(value || 0).toLocaleString(
+    "en-LK"
+  );
 }
 
-/* =========================================
-LOAD MAIN STORE
-========================================= */
+/* =========================================================
+   LOAD STORE
+========================================================= */
 
 async function load() {
+  try {
+    const store = await get("/api/store");
 
-try {
+    state.settings =
+      store.settings || {};
 
-```
-const store = await get("/api/store");
-
-console.log("STORE RESPONSE:", store);
-
-
-/* SETTINGS */
-
-state.settings =
-  store.settings || {};
-
-
-$("#storeName").textContent =
-  state.settings.store_name ||
-  "HASIYA ACCOUNT STORE";
-
-$("#slogan").textContent =
-  state.settings.slogan || "";
-
-$("#secondary").textContent =
-  state.settings.secondary_slogan || "";
-
-$("#footerSlogan").textContent =
-  state.settings.slogan || "";
-
-$("#footerSecondary").textContent =
-  state.settings.secondary_slogan || "";
-
-
-const whatsapp =
-  String(
-    state.settings.whatsapp_number || ""
-  ).replace(/\D/g, "");
-
-
-$("#footerWhatsApp").href =
-  whatsapp
-    ? `https://wa.me/${whatsapp}`
-    : "#";
-
-
-/* PRICE RANGES */
-
-const backendRanges =
-  Array.isArray(store.priceRanges)
-    ? store.priceRanges
-    : Array.isArray(store.price_ranges)
-      ? store.price_ranges
-      : [];
-
-
-/*
-  Fallback ranges.
-  This guarantees the price filters
-  still appear even if backend doesn't
-  send priceRanges.
-*/
-
-state.priceRanges =
-  backendRanges.length
-    ? backendRanges
-    : [
-        [1, 1000, 10000],
-        [2, 10000, 20000],
-        [3, 20000, 30000],
-        [4, 30000, 40000],
-        [5, 40000, 50000],
-        [6, 50000, 60000],
-        [7, 60000, 70000],
-        [8, 70000, 80000],
-        [9, 80000, 90000],
-        [10, 90000, 100000],
-        [11, 100000, 200000],
-        [12, 200000, 300000],
-        [13, 300000, 400000],
-        [14, 400000, 500000],
-        [15, 500000, 600000],
-        [16, 600000, 700000],
-        [17, 700000, 800000],
-        [18, 800000, 900000],
-        [19, 900000, 1000000]
-      ];
-
-
-renderPrices(state.priceRanges);
-
-
-/* ACCOUNTS */
-
-const accountsResponse =
-  await get(
-    `/api/accounts?range=${encodeURIComponent(state.range)}`
-  );
-
-
-const soldResponse =
-  await get("/api/accounts?sold=1");
-
-
-state.accounts =
-  Array.isArray(accountsResponse)
-    ? accountsResponse
-    : Array.isArray(accountsResponse.accounts)
-      ? accountsResponse.accounts
-      : Array.isArray(accountsResponse.data)
-        ? accountsResponse.data
+    state.priceRanges =
+      Array.isArray(store.priceRanges)
+        ? store.priceRanges
+        : Array.isArray(store.price_ranges)
+        ? store.price_ranges
         : [];
 
+    applySettings();
 
-state.sold =
-  Array.isArray(soldResponse)
-    ? soldResponse
-    : Array.isArray(soldResponse.accounts)
-      ? soldResponse.accounts
-      : Array.isArray(soldResponse.data)
-        ? soldResponse.data
-        : [];
+    renderPrices();
 
+    await loadAccounts();
+    await loadSold();
 
-console.log(
-  "AVAILABLE ACCOUNTS:",
-  state.accounts
-);
+  } catch (error) {
+    console.error(error);
 
-console.log(
-  "SOLD ACCOUNTS:",
-  state.sold
-);
+    const grid = $("#accountsGrid");
 
+    if (grid) {
+      grid.innerHTML = `
+        <div class="empty-state">
+          <h3>Unable to load accounts</h3>
+          <p>${esc(error.message)}</p>
+        </div>
+      `;
+    }
 
-render();
-renderSold();
+    const priceGrid = $("#priceGrid");
 
-/*
-  Trust / feature filter initialization.
-*/
+    if (priceGrid) {
+      priceGrid.innerHTML = `
+        <button class="price-btn active" data-range="0">
+          ALL PRICES
+        </button>
+      `;
+    }
+  }
+}
 
-setupTrustFilters();
-```
+/* =========================================================
+   SETTINGS
+========================================================= */
 
-} catch (error) {
+function applySettings() {
+  const settings = state.settings;
 
-```
-console.error(
-  "STORE LOAD ERROR:",
-  error
-);
+  const storeName = settings.store_name ||
+    "HASIYA ACCOUNT STORE";
 
+  const slogan = settings.slogan ||
+    "Premium Gaming Accounts";
 
-if ($("#accountsGrid")) {
+  const secondary =
+    settings.secondary_slogan ||
+    "Trusted • Secure • Fast";
 
-  $("#accountsGrid").innerHTML = `
-    <div class="muted">
-      Unable to load accounts.
-    </div>
+  if ($("#storeName")) {
+    $("#storeName").textContent =
+      storeName;
+  }
+
+  if ($("#slogan")) {
+    $("#slogan").textContent =
+      slogan;
+  }
+
+  if ($("#secondary")) {
+    $("#secondary").textContent =
+      secondary;
+  }
+
+  if ($("#footerSlogan")) {
+    $("#footerSlogan").textContent =
+      slogan;
+  }
+
+  if ($("#footerSecondary")) {
+    $("#footerSecondary").textContent =
+      secondary;
+  }
+
+  if ($("#footerWhatsApp")) {
+    const whatsapp =
+      settings.whatsapp_number || "";
+
+    if (whatsapp) {
+      $("#footerWhatsApp").textContent =
+        whatsapp;
+    }
+  }
+
+  document.title =
+    `${storeName} — ${slogan}`;
+}
+
+/* =========================================================
+   PRICE FILTERS
+========================================================= */
+
+function renderPrices() {
+  const grid = $("#priceGrid");
+
+  if (!grid) {
+    console.warn(
+      "#priceGrid not found"
+    );
+    return;
+  }
+
+  let html = `
+    <button
+      type="button"
+      class="price-btn active"
+      data-range="0"
+    >
+      ALL PRICES
+    </button>
   `;
 
+  for (const range of state.priceRanges) {
+    const id =
+      Number(range.id);
+
+    const label =
+      range.label ||
+      `Rs. ${money(range.min)} – ${money(range.max)}`;
+
+    html += `
+      <button
+        type="button"
+        class="price-btn"
+        data-range="${id}"
+      >
+        ${esc(label)}
+      </button>
+    `;
+  }
+
+  grid.innerHTML = html;
+
+  $$("#priceGrid .price-btn").forEach(
+    (button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          const range =
+            Number(
+              button.dataset.range
+            );
+
+          selectPriceRange(range);
+        }
+      );
+    }
+  );
 }
 
-if ($("#resultCount")) {
+/* =========================================================
+   SELECT PRICE
+========================================================= */
 
-  $("#resultCount").textContent =
-    "Unable to load accounts";
+async function selectPriceRange(range) {
+  state.range = Number(range || 0);
+  state.page = 1;
 
+  $$("#priceGrid .price-btn")
+    .forEach((button) => {
+      button.classList.toggle(
+        "active",
+        Number(button.dataset.range) ===
+          state.range
+      );
+    });
+
+  await loadAccounts();
+
+  const accountsSection =
+    $("#accountsGrid");
+
+  if (accountsSection) {
+    accountsSection.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  }
 }
-```
 
+/* =========================================================
+   LOAD ACCOUNTS
+========================================================= */
+
+async function loadAccounts() {
+  const grid =
+    $("#accountsGrid");
+
+  if (grid) {
+    grid.innerHTML = `
+      <div class="loading-state">
+        Loading accounts...
+      </div>
+    `;
+  }
+
+  const url =
+    state.range > 0
+      ? `/api/accounts?range=${encodeURIComponent(
+          state.range
+        )}`
+      : "/api/accounts";
+
+  try {
+    const data =
+      await get(url);
+
+    if (Array.isArray(data)) {
+      state.accounts = data;
+    } else if (
+      Array.isArray(data.accounts)
+    ) {
+      state.accounts =
+        data.accounts;
+    } else if (
+      Array.isArray(data.data)
+    ) {
+      state.accounts =
+        data.data;
+    } else {
+      state.accounts = [];
+    }
+
+    renderAccounts();
+
+  } catch (error) {
+    console.error(
+      "Accounts error:",
+      error
+    );
+
+    state.accounts = [];
+
+    if (grid) {
+      grid.innerHTML = `
+        <div class="empty-state">
+          <h3>Could not load accounts</h3>
+          <p>${esc(error.message)}</p>
+        </div>
+      `;
+    }
+  }
 }
 
+/* =========================================================
+   LOAD SOLD
+========================================================= */
+
+async function loadSold() {
+  const grid =
+    $("#soldGrid");
+
+  if (grid) {
+    grid.innerHTML = `
+      <div class="loading-state">
+        Loading...
+      </div>
+    `;
+  }
+
+  try {
+    const data =
+      await get("/api/accounts?sold=1");
+
+    if (Array.isArray(data)) {
+      state.sold = data;
+    } else if (
+      Array.isArray(data.accounts)
+    ) {
+      state.sold =
+        data.accounts;
+    } else if (
+      Array.isArray(data.data)
+    ) {
+      state.sold =
+        data.data;
+    } else {
+      state.sold = [];
+    }
+
+    renderSold();
+
+  } catch (error) {
+    console.error(
+      "Sold accounts error:",
+      error
+    );
+
+    state.sold = [];
+
+    renderSold();
+  }
 }
 
-/* =========================================
-PRICE FILTERS
-========================================= */
+/* =========================================================
+   ACCOUNT CARD
+========================================================= */
 
-function renderPrices(ranges) {
+function accountCard(account) {
+  const image =
+    account.image_url ||
+    "https://via.placeholder.com/600x400?text=HASIYA+ACCOUNT";
 
-const grid =
-$("#priceGrid");
-
-if (!grid) return;
-
-const labels = [
-"ALL PRICES",
-...ranges.map((range) => {
-
-```
-  const min =
-    Number(range[1] ?? range[0] ?? 0);
-
-  const max =
-    Number(range[2] ?? range[1] ?? 0);
-
-  return `Rs. ${min.toLocaleString()} – ${max.toLocaleString()}`;
-
-})
-```
-
-];
-
-grid.innerHTML =
-labels.map((label, index) => {
-
-```
-  const rangeValue =
-    index === 0
-      ? "all"
-      : String(index);
-
-
-  const active =
-    String(state.range) === rangeValue;
-
+  const featured =
+    account.featured
+      ? `<span class="account-badge">FEATURED</span>`
+      : "";
 
   return `
-    <button
-      type="button"
-      class="price-btn ${active ? "active" : ""}"
-      data-range="${rangeValue}"
+    <article
+      class="account-card"
+      data-id="${Number(account.id)}"
     >
-      ${label}
-    </button>
+      <div class="account-image-wrap">
+        ${featured}
+
+        <img
+          class="account-image"
+          src="${esc(image)}"
+          alt="${esc(account.title)}"
+          loading="lazy"
+          onerror="this.src='https://via.placeholder.com/600x400?text=ACCOUNT'"
+        >
+      </div>
+
+      <div class="account-content">
+
+        <div class="account-game">
+          ${esc(account.game || "Free Fire")}
+        </div>
+
+        <h3 class="account-title">
+          ${esc(account.title)}
+        </h3>
+
+        <div class="account-price">
+          Rs. ${money(account.price)}
+        </div>
+
+        <div class="account-meta">
+
+          ${
+            account.level
+              ? `
+                <span>
+                  Level ${esc(account.level)}
+                </span>
+              `
+              : ""
+          }
+
+          ${
+            account.likes
+              ? `
+                <span>
+                  ${esc(account.likes)} Likes
+                </span>
+              `
+              : ""
+          }
+
+          ${
+            account.fashion
+              ? `
+                <span>
+                  ${esc(account.fashion)}
+                </span>
+              `
+              : ""
+          }
+
+        </div>
+
+        <button
+          type="button"
+          class="account-view-btn"
+        >
+          VIEW DETAILS
+        </button>
+
+      </div>
+    </article>
   `;
-
-}).join("");
-```
-
-document
-.querySelectorAll(".price-btn")
-.forEach((button) => {
-
-```
-  button.onclick = async () => {
-
-    state.range =
-      button.dataset.range || "all";
-
-    state.page = 1;
-
-
-    document
-      .querySelectorAll(".price-btn")
-      .forEach((item) =>
-        item.classList.remove("active")
-      );
-
-
-    button.classList.add("active");
-
-
-    try {
-
-      const response =
-        await get(
-          `/api/accounts?range=${encodeURIComponent(state.range)}`
-        );
-
-
-      state.accounts =
-        Array.isArray(response)
-          ? response
-          : Array.isArray(response.accounts)
-            ? response.accounts
-            : Array.isArray(response.data)
-              ? response.data
-              : [];
-
-
-      render();
-
-      location.hash = "accounts";
-
-    } catch (error) {
-
-      console.error(
-        "PRICE FILTER ERROR:",
-        error
-      );
-
-    }
-
-  };
-
-});
-```
-
 }
 
-/* =========================================
-MAIN ACCOUNT RENDER
-========================================= */
+/* =========================================================
+   RENDER ACCOUNTS
+========================================================= */
 
-function render() {
+function renderAccounts() {
+  const grid =
+    $("#accountsGrid");
 
-const grid =
-$("#accountsGrid");
+  if (!grid) return;
 
-if (!grid) return;
+  const total =
+    state.accounts.length;
 
-const total =
-state.accounts.length;
+  if ($("#resultCount")) {
+    $("#resultCount").textContent =
+      `${total} account${total === 1 ? "" : "s"} found`;
+  }
 
-const pages =
-Math.max(
-1,
-Math.ceil(
-total / state.perPage
-)
-);
+  if (total === 0) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <h3>No accounts found</h3>
+        <p>
+          No accounts are available
+          in this price range.
+        </p>
+      </div>
+    `;
 
-if (state.page > pages) {
-state.page = pages;
-}
+    renderPagination(0);
+    return;
+  }
 
-const start =
-(state.page - 1) *
-state.perPage;
+  const start =
+    (state.page - 1) *
+    state.perPage;
 
-const slice =
-state.accounts.slice(
-start,
-start + state.perPage
-);
+  const end =
+    start + state.perPage;
 
-grid.innerHTML =
-slice.length
-? slice.map(
-(account) =>
-card(account, false)
-).join("")
-: `         <div class="muted">
-          No accounts found in this price range.         </div>
-      `;
-
-if ($("#resultCount")) {
-
-```
-$("#resultCount").textContent =
-  `${total} account${total === 1 ? "" : "s"} found`;
-```
-
-}
-
-const pagination =
-$("#pagination");
-
-if (!pagination) return;
-
-pagination.innerHTML =
-pages > 1
-? ` <button
-       type="button"
-       class="page"
-       data-p="${Math.max(
-         1,
-         state.page - 1
-       )}"
-     >
-PREVIOUS </button>
-
-```
-    ${Array.from(
-      { length: pages },
-      (_, index) => {
-
-        const page =
-          index + 1;
-
-        return `
-          <button
-            type="button"
-            class="page ${
-              state.page === page
-                ? "active"
-                : ""
-            }"
-            data-p="${page}"
-          >
-            ${page}
-          </button>
-        `;
-
-      }
-    ).join("")}
-
-    <button
-      type="button"
-      class="page"
-      data-p="${Math.min(
-        pages,
-        state.page + 1
-      )}"
-    >
-      NEXT
-    </button>
-  `
-  : "";
-```
-
-document
-.querySelectorAll(".page")
-.forEach((button) => {
-
-```
-  button.onclick = () => {
-
-    state.page =
-      Number(
-        button.dataset.p
-      );
-
-
-    render();
-
-
-    const accountsSection =
-      $("#accounts");
-
-    if (accountsSection) {
-
-      accountsSection.scrollIntoView({
-        behavior: "smooth"
-      });
-
-    }
-
-  };
-
-});
-```
-
-document
-.querySelectorAll(
-"#accountsGrid .account-card"
-)
-.forEach((cardElement) => {
-
-```
-  cardElement.onclick = (event) => {
-
-    if (
-      event.target.closest("a") ||
-      event.target.closest(".buy") ||
-      event.target.closest("button")
-    ) {
-      if (
-        event.target.closest(".details")
-      ) {
-        openDetails(
-          Number(
-            cardElement.dataset.id
-          ),
-          false
-        );
-      }
-
-      return;
-    }
-
-
-    openDetails(
-      Number(
-        cardElement.dataset.id
-      ),
-      false
+  const visible =
+    state.accounts.slice(
+      start,
+      end
     );
 
-  };
+  grid.innerHTML =
+    visible
+      .map(accountCard)
+      .join("");
 
-});
-```
+  $$("#accountsGrid .account-card")
+    .forEach((card) => {
+      card.addEventListener(
+        "click",
+        () => {
+          const id =
+            Number(card.dataset.id);
 
+          const account =
+            state.accounts.find(
+              a =>
+                Number(a.id) === id
+            );
+
+          if (account) {
+            openDetails(account);
+          }
+        }
+      );
+    });
+
+  renderPagination(total);
 }
 
-/* =========================================
-SOLD
-========================================= */
+/* =========================================================
+   PAGINATION
+========================================================= */
+
+function renderPagination(total) {
+  const pagination =
+    $("#pagination");
+
+  if (!pagination) return;
+
+  const pages =
+    Math.ceil(
+      total / state.perPage
+    );
+
+  if (pages <= 1) {
+    pagination.innerHTML = "";
+    return;
+  }
+
+  let html = "";
+
+  for (
+    let i = 1;
+    i <= pages;
+    i++
+  ) {
+    html += `
+      <button
+        type="button"
+        class="page-btn ${
+          i === state.page
+            ? "active"
+            : ""
+        }"
+        data-page="${i}"
+      >
+        ${i}
+      </button>
+    `;
+  }
+
+  pagination.innerHTML =
+    html;
+
+  $$("#pagination .page-btn")
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          state.page =
+            Number(
+              button.dataset.page
+            );
+
+          renderAccounts();
+
+          window.scrollTo({
+            top: 0,
+            behavior: "smooth"
+          });
+        }
+      );
+    });
+}
+
+/* =========================================================
+   SOLD ACCOUNTS
+========================================================= */
 
 function renderSold() {
+  const grid =
+    $("#soldGrid");
 
-const grid =
-$("#soldGrid");
+  if (!grid) return;
 
-if (!grid) return;
+  if (state.sold.length === 0) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <h3>No sold accounts</h3>
+        <p>
+          Sold accounts will appear here.
+        </p>
+      </div>
+    `;
 
-grid.innerHTML =
-state.sold.length
-? state.sold
-.slice(0, 20)
-.map(
-(account) =>
-card(account, true)
-)
-.join("")
-: `         <div class="muted">
-          No sold accounts yet.         </div>
-      `;
+    return;
+  }
 
-document
-.querySelectorAll(
-"#soldGrid .account-card"
-)
-.forEach((element) => {
+  grid.innerHTML =
+    state.sold
+      .map(account => {
+        const image =
+          account.image_url ||
+          "https://via.placeholder.com/600x400?text=SOLD";
 
-```
-  element.onclick = () => {
+        return `
+          <article
+            class="account-card sold-card"
+            data-id="${Number(account.id)}"
+          >
 
-    openDetails(
-      Number(element.dataset.id),
-      true
-    );
+            <div class="account-image-wrap">
 
-  };
+              <span class="account-badge sold-badge">
+                SOLD OUT
+              </span>
 
-});
-```
+              <img
+                class="account-image"
+                src="${esc(image)}"
+                alt="${esc(account.title)}"
+                loading="lazy"
+              >
 
+            </div>
+
+            <div class="account-content">
+
+              <div class="account-game">
+                ${esc(account.game || "Free Fire")}
+              </div>
+
+              <h3 class="account-title">
+                ${esc(account.title)}
+              </h3>
+
+              <div class="account-price">
+                Rs. ${money(account.price)}
+              </div>
+
+              <button
+                type="button"
+                class="account-view-btn"
+              >
+                VIEW DETAILS
+              </button>
+
+            </div>
+
+          </article>
+        `;
+      })
+      .join("");
+
+  $$("#soldGrid .account-card")
+    .forEach(card => {
+      card.addEventListener(
+        "click",
+        () => {
+          const id =
+            Number(card.dataset.id);
+
+          const account =
+            state.sold.find(
+              a =>
+                Number(a.id) === id
+            );
+
+          if (account) {
+            openDetails(
+              account,
+              true
+            );
+          }
+        }
+      );
+    });
 }
 
-/* =========================================
-DETAILS MODAL
-========================================= */
+/* =========================================================
+   DETAILS MODAL
+========================================================= */
 
-function openDetails(id, sold) {
+function openDetails(
+  account,
+  sold = false
+) {
+  const modal =
+    $("#detailModal");
 
-const source =
-sold
-? state.sold
-: state.accounts;
+  const body =
+    $("#detailBody");
 
-const account =
-source.find(
-(item) =>
-Number(item.id) ===
-Number(id)
-);
+  if (!modal || !body) {
+    return;
+  }
 
-if (!account) return;
+  const image =
+    account.image_url ||
+    "https://via.placeholder.com/700x500?text=ACCOUNT";
 
-const featured =
-Number(account.featured) === 1 ||
-account.featured === true;
+  body.innerHTML = `
+    <div class="detail-layout">
 
-$("#detailBody").innerHTML = `
+      <div class="detail-image">
+        <img
+          src="${esc(image)}"
+          alt="${esc(account.title)}"
+        >
+      </div>
 
-```
-<div class="detail">
+      <div class="detail-info">
 
-  <img
-    src="${esc(account.image_url)}"
-    alt="${esc(account.title)}"
-  >
+        <div class="account-game">
+          ${esc(account.game || "Free Fire")}
+        </div>
 
+        <h2>
+          ${esc(account.title)}
+        </h2>
 
-  <div class="account-top">
+        <div class="detail-price">
+          Rs. ${money(account.price)}
+        </div>
 
-    <div>
+        ${
+          account.level
+            ? `
+              <div class="detail-row">
+                <strong>Level</strong>
+                <span>${esc(account.level)}</span>
+              </div>
+            `
+            : ""
+        }
 
-      <h2>
-        ${esc(account.title)}
-      </h2>
+        ${
+          account.fashion
+            ? `
+              <div class="detail-row">
+                <strong>Fashion</strong>
+                <span>${esc(account.fashion)}</span>
+              </div>
+            `
+            : ""
+        }
 
-      <div class="muted">
-        ${esc(account.game)}
+        ${
+          account.evo_guns
+            ? `
+              <div class="detail-row">
+                <strong>Evo Guns</strong>
+                <span>${esc(account.evo_guns)}</span>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          account.emotes
+            ? `
+              <div class="detail-row">
+                <strong>Emotes</strong>
+                <span>${esc(account.emotes)}</span>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          account.likes
+            ? `
+              <div class="detail-row">
+                <strong>Likes</strong>
+                <span>${esc(account.likes)}</span>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          account.bind_info
+            ? `
+              <div class="detail-row">
+                <strong>Bind</strong>
+                <span>${esc(account.bind_info)}</span>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          account.description
+            ? `
+              <div class="detail-description">
+                ${esc(account.description)}
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          sold
+            ? `
+              <div class="sold-message">
+                SOLD OUT
+              </div>
+            `
+            : `
+              <a
+                class="contact-account-btn"
+                href="#contact"
+              >
+                CONTACT TO BUY
+              </a>
+            `
+        }
+
       </div>
 
     </div>
+  `;
 
-    <div class="price">
-      ${money(account.price)}
-    </div>
-
-  </div>
-
-
-  <span class="badge ${sold ? "sold" : ""}">
-
-    ${
-      sold
-        ? "SOLD OUT"
-        : featured
-          ? "FEATURED"
-          : "AVAILABLE"
-    }
-
-  </span>
-
-
-  <div class="detail-grid">
-
-    <div class="spec">
-      Level
-      <b>${esc(account.level || "—")}</b>
-    </div>
-
-    <div class="spec">
-      Fashion / Bundles
-      <b>${esc(account.fashion || "—")}</b>
-    </div>
-
-    <div class="spec">
-      Evo Guns
-      <b>${esc(account.evo_guns || "—")}</b>
-    </div>
-
-    <div class="spec">
-      Emotes
-      <b>${esc(account.emotes || "—")}</b>
-    </div>
-
-    <div class="spec">
-      Likes
-      <b>${esc(account.likes || "—")}</b>
-    </div>
-
-    <div class="spec">
-      Bind
-      <b>${esc(account.bind_info || "—")}</b>
-    </div>
-
-  </div>
-
-
-  <p class="description">
-    ${esc(
-      account.description ||
-      "No description provided."
-    )}
-  </p>
-
-
-  ${
-    sold
-      ? ""
-      : `
-        <a
-          class="btn primary"
-          target="_blank"
-          rel="noopener"
-          href="${waUrl(account)}"
-        >
-          BUY / CONTACT ON WHATSAPP
-        </a>
-      `
-  }
-
-</div>
-```
-
-`;
-
-$("#detailModal")
-.classList
-.add("show");
-
-}
-
-/* =========================================
-MODAL
-========================================= */
-
-if ($("#modalClose")) {
-
-$("#modalClose").onclick = () => {
-
-```
-$("#detailModal")
-  .classList
-  .remove("show");
-```
-
-};
-
-}
-
-if ($("#detailModal")) {
-
-$("#detailModal").onclick = (event) => {
-
-```
-if (
-  event.target.id ===
-  "detailModal"
-) {
-
-  event.currentTarget
-    .classList
-    .remove("show");
-
-}
-```
-
-};
-
-}
-
-/* =========================================
-MOBILE NAV
-========================================= */
-
-if ($("#navToggle")) {
-
-$("#navToggle").onclick = () => {
-
-```
-const links =
-  $("#navLinks");
-
-if (!links) return;
-
-links.style.display =
-  links.style.display === "flex"
-    ? "none"
-    : "flex";
-```
-
-};
-
-}
-
-/* =========================================
-TRUST FILTERS
-========================================= */
-
-function setupTrustFilters() {
-
-/*
-Supports existing trust-filter buttons
-without requiring a specific HTML design.
-*/
-
-const filters =
-document.querySelectorAll(
-"[data-trust-filter], .trust-filter"
-);
-
-if (!filters.length) {
-
-```
-console.log(
-  "No trust filter elements found in HTML."
-);
-
-return;
-```
-
-}
-
-filters.forEach((button) => {
-
-```
-button.onclick = () => {
-
-  const value =
-    button.dataset.trustFilter ||
-    button.dataset.filter ||
-    "all";
-
-
-  filters.forEach((item) =>
-    item.classList.remove("active")
+  modal.hidden = false;
+  document.body.classList.add(
+    "modal-open"
   );
-
-  button.classList.add("active");
-
-
-  let filtered =
-    [...state.accounts];
-
-
-  if (
-    value !== "all" &&
-    value !== "available"
-  ) {
-
-    filtered =
-      filtered.filter(
-        (account) =>
-          String(
-            account.bind_info || ""
-          )
-          .toLowerCase()
-          .includes(
-            String(value)
-              .toLowerCase()
-          )
-      );
-
-  }
-
-
-  state.page = 1;
-
-  const old =
-    state.accounts;
-
-  state.accounts =
-    filtered;
-
-  render();
-
-  /*
-    Restore original accounts when
-    ALL is selected.
-  */
-
-  if (value === "all") {
-
-    state.accounts =
-      old;
-
-  }
-
-};
-```
-
-});
-
 }
 
-/* =========================================
-START
-========================================= */
+/* =========================================================
+   CLOSE MODAL
+========================================================= */
 
-load();
+function closeModal() {
+  const modal =
+    $("#detailModal");
+
+  if (modal) {
+    modal.hidden = true;
+  }
+
+  document.body.classList.remove(
+    "modal-open"
+  );
+}
+
+function setupModal() {
+  const close =
+    $("#modalClose");
+
+  if (close) {
+    close.addEventListener(
+      "click",
+      closeModal
+    );
+  }
+
+  const modal =
+    $("#detailModal");
+
+  if (modal) {
+    modal.addEventListener(
+      "click",
+      event => {
+        if (
+          event.target === modal
+        ) {
+          closeModal();
+        }
+      }
+    );
+  }
+
+  document.addEventListener(
+    "keydown",
+    event => {
+      if (
+        event.key === "Escape"
+      ) {
+        closeModal();
+      }
+    }
+  );
+}
+
+/* =========================================================
+   NAVIGATION
+========================================================= */
+
+function setupNavigation() {
+  $$("a[href^='#']")
+    .forEach(link => {
+      link.addEventListener(
+        "click",
+        event => {
+          const targetId =
+            link
+              .getAttribute("href")
+              .slice(1);
+
+          if (!targetId) return;
+
+          const target =
+            document.getElementById(
+              targetId
+            );
+
+          if (!target) return;
+
+          event.preventDefault();
+
+          target.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+          });
+        }
+      );
+    });
+}
+
+/* =========================================================
+   START
+========================================================= */
+
+document.addEventListener(
+  "DOMContentLoaded",
+  async () => {
+    setupModal();
+    setupNavigation();
+
+    await load();
+  }
+);
