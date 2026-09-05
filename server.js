@@ -1,7 +1,7 @@
 ```js
 const express = require("express");
 const session = require("express-session");
-const Database = require("better-sqlite3");
+const { Pool } = require("pg");
 const helmet = require("helmet");
 const crypto = require("crypto");
 const fs = require("fs");
@@ -10,12 +10,31 @@ const path = require("path");
 const app = express();
 
 const PORT = process.env.PORT || 3000;
-
-const DATA_DIR = path.join(__dirname, "data");
-const DB_FILE = path.join(DATA_DIR, "store.db");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
+/* =========================================================
+   POSTGRESQL DATABASE
+========================================================= */
+
+if (!process.env.DATABASE_URL) {
+  console.error("ERROR: DATABASE_URL environment variable is missing.");
+  process.exit(1);
+}
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
+pool.on("error", (err) => {
+  console.error("Unexpected PostgreSQL pool error:", err);
+});
+
+/* =========================================================
+   MIDDLEWARE
+========================================================= */
 
 app.use(
   helmet({
@@ -27,108 +46,63 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 /* =========================================================
-   DATABASE
-========================================================= */
-
-let db;
-
-function openDatabase() {
-  try {
-    db = new Database(DB_FILE);
-
-    db.pragma("foreign_keys = ON");
-
-    console.log("SQLite database opened/created.");
-  } catch (err) {
-    console.error("Database open failed:", err.message);
-
-    try {
-      if (db) {
-        db.close();
-      }
-    } catch {}
-
-    db = null;
-
-    /*
-      If an invalid SQLite file exists,
-      move it away instead of crashing the server.
-    */
-    try {
-      if (fs.existsSync(DB_FILE)) {
-        const backup = path.join(
-          DATA_DIR,
-          "store.db.invalid-" + Date.now()
-        );
-
-        fs.renameSync(DB_FILE, backup);
-
-        console.error(
-          "Invalid database moved to: " + backup
-        );
-      }
-    } catch (backupErr) {
-      console.error(
-        "Could not backup invalid database:",
-        backupErr.message
-      );
-    }
-
-    /*
-      Create a completely fresh database.
-    */
-    db = new Database(DB_FILE);
-
-    db.pragma("foreign_keys = ON");
-
-    console.log("Fresh SQLite database created.");
-  }
-}
-
-openDatabase();
-
-/* =========================================================
    DATABASE SCHEMA
 ========================================================= */
 
-function initSchema() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS accounts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      game TEXT NOT NULL,
-      price INTEGER NOT NULL CHECK(price >= 0),
-      image_url TEXT NOT NULL,
-      level TEXT DEFAULT '',
-      fashion TEXT DEFAULT '',
-      evo_guns TEXT DEFAULT '',
-      emotes TEXT DEFAULT '',
-      likes TEXT DEFAULT '',
-      bind_info TEXT DEFAULT '',
-      description TEXT DEFAULT '',
-      featured INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'AVAILABLE'
-        CHECK(status IN ('AVAILABLE', 'SOLD')),
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
+async function initDatabase() {
+  const client = await pool.connect();
 
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
+  try {
+    await client.query("BEGIN");
 
-    CREATE TABLE IF NOT EXISTS admin (
-      id INTEGER PRIMARY KEY CHECK(id = 1),
-      username TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL
-    );
-  `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS accounts (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        game TEXT NOT NULL,
+        price INTEGER NOT NULL DEFAULT 0 CHECK(price >= 0),
+        image_url TEXT NOT NULL,
+        level TEXT DEFAULT '',
+        fashion TEXT DEFAULT '',
+        evo_guns TEXT DEFAULT '',
+        emotes TEXT DEFAULT '',
+        likes TEXT DEFAULT '',
+        bind_info TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        featured INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'AVAILABLE'
+          CHECK(status IN ('AVAILABLE', 'SOLD')),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
-  console.log("Database schema initialized.");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS admin (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL
+      );
+    `);
+
+    await client.query("COMMIT");
+
+    console.log("PostgreSQL database schema initialized.");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Database schema initialization failed:", err);
+    throw err;
+  } finally {
+    client.release();
+  }
 }
-
-initSchema();
 
 /* =========================================================
    PASSWORD HASHING
@@ -159,10 +133,14 @@ function verifyPassword(password, storedHash) {
       .scryptSync(password, salt, 64)
       .toString("hex");
 
-    return crypto.timingSafeEqual(
-      Buffer.from(hash, "hex"),
-      Buffer.from(originalHash, "hex")
-    );
+    const a = Buffer.from(hash, "hex");
+    const b = Buffer.from(originalHash, "hex");
+
+    if (a.length !== b.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(a, b);
   } catch {
     return false;
   }
@@ -172,7 +150,7 @@ function verifyPassword(password, storedHash) {
    DEFAULT SETTINGS
 ========================================================= */
 
-function initSettings() {
+async function initSettings() {
   const defaults = {
     whatsapp_number: "",
     store_name: "HASIYA ACCOUNT STORE",
@@ -181,54 +159,53 @@ function initSettings() {
       "100% විශ්වාසවන්ත ලෙස Account වැඩ කරගැනීමට අප සමඟ එකතු වන්න."
   };
 
-  const stmt = db.prepare(`
-    INSERT OR IGNORE INTO settings (key, value)
-    VALUES (?, ?)
-  `);
-
-  const transaction = db.transaction(() => {
-    for (const [key, value] of Object.entries(defaults)) {
-      stmt.run(key, value);
-    }
-  });
-
-  transaction();
+  for (const [key, value] of Object.entries(defaults)) {
+    await pool.query(
+      `
+        INSERT INTO settings (key, value)
+        VALUES ($1, $2)
+        ON CONFLICT (key) DO NOTHING
+      `,
+      [key, value]
+    );
+  }
 
   console.log("Default settings initialized.");
 }
-
-initSettings();
 
 /* =========================================================
    DEFAULT ADMIN
 ========================================================= */
 
-function initAdmin() {
-  const existing = db
-    .prepare("SELECT id FROM admin WHERE id = 1")
-    .get();
+async function initAdmin() {
+  const result = await pool.query(
+    "SELECT id FROM admin WHERE id = 1"
+  );
 
-  if (!existing) {
+  if (result.rows.length === 0) {
     const username = "admin";
     const password = "geenath2009#";
 
     const passwordHash = hashPassword(password);
 
-    db.prepare(`
-      INSERT INTO admin (
-        id,
-        username,
-        password_hash
-      )
-      VALUES (1, ?, ?)
-    `).run(username, passwordHash);
+    await pool.query(
+      `
+        INSERT INTO admin (
+          id,
+          username,
+          password_hash
+        )
+        VALUES (1, $1, $2)
+      `,
+      [username, passwordHash]
+    );
 
     console.log("Admin account created.");
     console.log("Username: admin");
+  } else {
+    console.log("Admin account already exists.");
   }
 }
-
-initAdmin();
 
 /* =========================================================
    SESSION
@@ -257,14 +234,14 @@ app.use(
    HELPERS
 ========================================================= */
 
-function getSettings() {
-  const rows = db
-    .prepare("SELECT key, value FROM settings")
-    .all();
+async function getSettings() {
+  const result = await pool.query(
+    "SELECT key, value FROM settings ORDER BY key"
+  );
 
   const settings = {};
 
-  for (const row of rows) {
+  for (const row of result.rows) {
     settings[row.key] = row.value;
   }
 
@@ -312,11 +289,9 @@ function driveToImageUrl(url) {
   );
 
   if (match) {
-    const fileId = match[1];
-
     return (
       "https://drive.google.com/uc?export=view&id=" +
-      fileId
+      match[1]
     );
   }
 
@@ -350,16 +325,16 @@ function normalizeAccount(row) {
    PUBLIC STORE API
 ========================================================= */
 
-app.get("/api/store", (req, res) => {
+app.get("/api/store", async (req, res) => {
   try {
-    const settings = getSettings();
+    const settings = await getSettings();
 
     res.json({
       success: true,
       settings
     });
   } catch (err) {
-    console.error(err);
+    console.error("Store API error:", err);
 
     res.status(500).json({
       success: false,
@@ -372,7 +347,7 @@ app.get("/api/store", (req, res) => {
    PUBLIC ACCOUNTS API
 ========================================================= */
 
-app.get("/api/accounts", (req, res) => {
+app.get("/api/accounts", async (req, res) => {
   try {
     const minPrice =
       req.query.minPrice !== undefined
@@ -390,22 +365,22 @@ app.get("/api/accounts", (req, res) => {
       WHERE status = 'AVAILABLE'
     `;
 
-    const params = {};
+    const params = [];
 
     if (
       minPrice !== null &&
       Number.isFinite(minPrice)
     ) {
-      sql += " AND price >= @minPrice";
-      params.minPrice = minPrice;
+      params.push(minPrice);
+      sql += ` AND price >= $${params.length}`;
     }
 
     if (
       maxPrice !== null &&
       Number.isFinite(maxPrice)
     ) {
-      sql += " AND price <= @maxPrice";
-      params.maxPrice = maxPrice;
+      params.push(maxPrice);
+      sql += ` AND price <= $${params.length}`;
     }
 
     sql += `
@@ -414,16 +389,14 @@ app.get("/api/accounts", (req, res) => {
         created_at DESC
     `;
 
-    const rows = db
-      .prepare(sql)
-      .all(params);
+    const result = await pool.query(sql, params);
 
     res.json({
       success: true,
-      accounts: rows.map(normalizeAccount)
+      accounts: result.rows.map(normalizeAccount)
     });
   } catch (err) {
-    console.error(err);
+    console.error("Public accounts error:", err);
 
     res.status(500).json({
       success: false,
@@ -436,7 +409,7 @@ app.get("/api/accounts", (req, res) => {
    ADMIN LOGIN
 ========================================================= */
 
-app.post("/api/admin/login", (req, res) => {
+app.post("/api/admin/login", async (req, res) => {
   try {
     const username = cleanString(req.body.username);
     const password = cleanString(req.body.password);
@@ -448,13 +421,16 @@ app.post("/api/admin/login", (req, res) => {
       });
     }
 
-    const admin = db
-      .prepare(`
+    const result = await pool.query(
+      `
         SELECT *
         FROM admin
-        WHERE username = ?
-      `)
-      .get(username);
+        WHERE username = $1
+      `,
+      [username]
+    );
+
+    const admin = result.rows[0];
 
     if (!admin) {
       return res.status(401).json({
@@ -489,7 +465,7 @@ app.post("/api/admin/login", (req, res) => {
       }
     });
   } catch (err) {
-    console.error(err);
+    console.error("Login error:", err);
 
     res.status(500).json({
       success: false,
@@ -537,50 +513,42 @@ app.get("/api/admin/me", (req, res) => {
 app.get(
   "/api/admin/dashboard",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
-      const total = db
-        .prepare(`
-          SELECT COUNT(*) AS count
-          FROM accounts
-        `)
-        .get().count;
+      const totalResult = await pool.query(`
+        SELECT COUNT(*)::integer AS count
+        FROM accounts
+      `);
 
-      const available = db
-        .prepare(`
-          SELECT COUNT(*) AS count
-          FROM accounts
-          WHERE status = 'AVAILABLE'
-        `)
-        .get().count;
+      const availableResult = await pool.query(`
+        SELECT COUNT(*)::integer AS count
+        FROM accounts
+        WHERE status = 'AVAILABLE'
+      `);
 
-      const sold = db
-        .prepare(`
-          SELECT COUNT(*) AS count
-          FROM accounts
-          WHERE status = 'SOLD'
-        `)
-        .get().count;
+      const soldResult = await pool.query(`
+        SELECT COUNT(*)::integer AS count
+        FROM accounts
+        WHERE status = 'SOLD'
+      `);
 
-      const featured = db
-        .prepare(`
-          SELECT COUNT(*) AS count
-          FROM accounts
-          WHERE featured = 1
-        `)
-        .get().count;
+      const featuredResult = await pool.query(`
+        SELECT COUNT(*)::integer AS count
+        FROM accounts
+        WHERE featured = 1
+      `);
 
       res.json({
         success: true,
         dashboard: {
-          total,
-          available,
-          sold,
-          featured
+          total: totalResult.rows[0].count,
+          available: availableResult.rows[0].count,
+          sold: soldResult.rows[0].count,
+          featured: featuredResult.rows[0].count
         }
       });
     } catch (err) {
-      console.error(err);
+      console.error("Dashboard error:", err);
 
       res.status(500).json({
         success: false,
@@ -597,22 +565,20 @@ app.get(
 app.get(
   "/api/admin/accounts",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
-      const rows = db
-        .prepare(`
-          SELECT *
-          FROM accounts
-          ORDER BY created_at DESC
-        `)
-        .all();
+      const result = await pool.query(`
+        SELECT *
+        FROM accounts
+        ORDER BY created_at DESC
+      `);
 
       res.json({
         success: true,
-        accounts: rows.map(normalizeAccount)
+        accounts: result.rows.map(normalizeAccount)
       });
     } catch (err) {
-      console.error(err);
+      console.error("Admin accounts error:", err);
 
       res.status(500).json({
         success: false,
@@ -629,7 +595,7 @@ app.get(
 app.post(
   "/api/admin/accounts",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
       const body = req.body || {};
 
@@ -696,8 +662,8 @@ app.post(
         });
       }
 
-      const result = db
-        .prepare(`
+      const result = await pool.query(
+        `
           INSERT INTO accounts (
             title,
             game,
@@ -714,52 +680,46 @@ app.post(
             status
           )
           VALUES (
-            @title,
-            @game,
-            @price,
-            @image_url,
-            @level,
-            @fashion,
-            @evo_guns,
-            @emotes,
-            @likes,
-            @bind_info,
-            @description,
-            @featured,
-            @status
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            $8,
+            $9,
+            $10,
+            $11,
+            $12,
+            $13
           )
-        `)
-        .run({
+          RETURNING *
+        `,
+        [
           title,
           game,
           price,
-          image_url: imageUrl,
+          imageUrl,
           level,
           fashion,
-          evo_guns: evoGuns,
+          evoGuns,
           emotes,
           likes,
-          bind_info: bindInfo,
+          bindInfo,
           description,
           featured,
           status
-        });
-
-      const account = db
-        .prepare(`
-          SELECT *
-          FROM accounts
-          WHERE id = ?
-        `)
-        .get(result.lastInsertRowid);
+        ]
+      );
 
       res.status(201).json({
         success: true,
         message: "Account created.",
-        account: normalizeAccount(account)
+        account: normalizeAccount(result.rows[0])
       });
     } catch (err) {
-      console.error(err);
+      console.error("Create account error:", err);
 
       res.status(500).json({
         success: false,
@@ -776,7 +736,7 @@ app.post(
 app.put(
   "/api/admin/accounts/:id",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
       const id = Number(req.params.id);
 
@@ -787,13 +747,16 @@ app.put(
         });
       }
 
-      const existing = db
-        .prepare(`
+      const existingResult = await pool.query(
+        `
           SELECT *
           FROM accounts
-          WHERE id = ?
-        `)
-        .get(id);
+          WHERE id = $1
+        `,
+        [id]
+      );
+
+      const existing = existingResult.rows[0];
 
       if (!existing) {
         return res.status(404).json({
@@ -899,56 +862,52 @@ app.put(
         });
       }
 
-      db.prepare(`
-        UPDATE accounts
-        SET
-          title = @title,
-          game = @game,
-          price = @price,
-          image_url = @image_url,
-          level = @level,
-          fashion = @fashion,
-          evo_guns = @evo_guns,
-          emotes = @emotes,
-          likes = @likes,
-          bind_info = @bind_info,
-          description = @description,
-          featured = @featured,
-          status = @status,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = @id
-      `).run({
-        id,
-        title,
-        game,
-        price,
-        image_url: imageUrl,
-        level,
-        fashion,
-        evo_guns: evoGuns,
-        emotes,
-        likes,
-        bind_info: bindInfo,
-        description,
-        featured,
-        status
-      });
-
-      const account = db
-        .prepare(`
-          SELECT *
-          FROM accounts
-          WHERE id = ?
-        `)
-        .get(id);
+      const result = await pool.query(
+        `
+          UPDATE accounts
+          SET
+            title = $1,
+            game = $2,
+            price = $3,
+            image_url = $4,
+            level = $5,
+            fashion = $6,
+            evo_guns = $7,
+            emotes = $8,
+            likes = $9,
+            bind_info = $10,
+            description = $11,
+            featured = $12,
+            status = $13,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $14
+          RETURNING *
+        `,
+        [
+          title,
+          game,
+          price,
+          imageUrl,
+          level,
+          fashion,
+          evoGuns,
+          emotes,
+          likes,
+          bindInfo,
+          description,
+          featured,
+          status,
+          id
+        ]
+      );
 
       res.json({
         success: true,
         message: "Account updated.",
-        account: normalizeAccount(account)
+        account: normalizeAccount(result.rows[0])
       });
     } catch (err) {
-      console.error(err);
+      console.error("Update account error:", err);
 
       res.status(500).json({
         success: false,
@@ -965,7 +924,7 @@ app.put(
 app.delete(
   "/api/admin/accounts/:id",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
       const id = Number(req.params.id);
 
@@ -976,14 +935,16 @@ app.delete(
         });
       }
 
-      const result = db
-        .prepare(`
+      const result = await pool.query(
+        `
           DELETE FROM accounts
-          WHERE id = ?
-        `)
-        .run(id);
+          WHERE id = $1
+          RETURNING id
+        `,
+        [id]
+      );
 
-      if (result.changes === 0) {
+      if (result.rows.length === 0) {
         return res.status(404).json({
           success: false,
           message: "Account not found."
@@ -995,7 +956,7 @@ app.delete(
         message: "Account deleted."
       });
     } catch (err) {
-      console.error(err);
+      console.error("Delete account error:", err);
 
       res.status(500).json({
         success: false,
@@ -1012,7 +973,7 @@ app.delete(
 app.patch(
   "/api/admin/accounts/:id/status",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
       const id = Number(req.params.id);
 
@@ -1028,38 +989,32 @@ app.patch(
           ? "SOLD"
           : "AVAILABLE";
 
-      const result = db
-        .prepare(`
+      const result = await pool.query(
+        `
           UPDATE accounts
           SET
-            status = ?,
+            status = $1,
             updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `)
-        .run(status, id);
+          WHERE id = $2
+          RETURNING *
+        `,
+        [status, id]
+      );
 
-      if (result.changes === 0) {
+      if (result.rows.length === 0) {
         return res.status(404).json({
           success: false,
           message: "Account not found."
         });
       }
 
-      const account = db
-        .prepare(`
-          SELECT *
-          FROM accounts
-          WHERE id = ?
-        `)
-        .get(id);
-
       res.json({
         success: true,
         message: "Status updated.",
-        account: normalizeAccount(account)
+        account: normalizeAccount(result.rows[0])
       });
     } catch (err) {
-      console.error(err);
+      console.error("Status update error:", err);
 
       res.status(500).json({
         success: false,
@@ -1076,14 +1031,14 @@ app.patch(
 app.get(
   "/api/admin/settings",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
       res.json({
         success: true,
-        settings: getSettings()
+        settings: await getSettings()
       });
     } catch (err) {
-      console.error(err);
+      console.error("Settings load error:", err);
 
       res.status(500).json({
         success: false,
@@ -1100,7 +1055,9 @@ app.get(
 app.put(
   "/api/admin/settings",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
+    const client = await pool.connect();
+
     try {
       const body = req.body || {};
 
@@ -1111,38 +1068,40 @@ app.put(
         "secondary_slogan"
       ];
 
-      const update = db.prepare(`
-        INSERT INTO settings (key, value)
-        VALUES (?, ?)
-        ON CONFLICT(key)
-        DO UPDATE SET value = excluded.value
-      `);
+      await client.query("BEGIN");
 
-      const transaction = db.transaction(() => {
-        for (const key of allowedKeys) {
-          if (body[key] !== undefined) {
-            update.run(
-              key,
-              cleanString(body[key])
-            );
-          }
+      for (const key of allowedKeys) {
+        if (body[key] !== undefined) {
+          await client.query(
+            `
+              INSERT INTO settings (key, value)
+              VALUES ($1, $2)
+              ON CONFLICT (key)
+              DO UPDATE SET value = EXCLUDED.value
+            `,
+            [key, cleanString(body[key])]
+          );
         }
-      });
+      }
 
-      transaction();
+      await client.query("COMMIT");
 
       res.json({
         success: true,
         message: "Settings updated.",
-        settings: getSettings()
+        settings: await getSettings()
       });
     } catch (err) {
-      console.error(err);
+      await client.query("ROLLBACK");
+
+      console.error("Settings update error:", err);
 
       res.status(500).json({
         success: false,
         message: "Could not update settings."
       });
+    } finally {
+      client.release();
     }
   }
 );
@@ -1154,7 +1113,7 @@ app.put(
 app.post(
   "/api/admin/password",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
       const currentPassword = cleanString(
         req.body.currentPassword
@@ -1180,13 +1139,15 @@ app.post(
         });
       }
 
-      const admin = db
-        .prepare(`
+      const result = await pool.query(
+        `
           SELECT *
           FROM admin
           WHERE id = 1
-        `)
-        .get();
+        `
+      );
+
+      const admin = result.rows[0];
 
       if (!admin) {
         return res.status(500).json({
@@ -1209,18 +1170,21 @@ app.post(
 
       const newHash = hashPassword(newPassword);
 
-      db.prepare(`
-        UPDATE admin
-        SET password_hash = ?
-        WHERE id = 1
-      `).run(newHash);
+      await pool.query(
+        `
+          UPDATE admin
+          SET password_hash = $1
+          WHERE id = 1
+        `,
+        [newHash]
+      );
 
       res.json({
         success: true,
         message: "Password changed successfully."
       });
     } catch (err) {
-      console.error(err);
+      console.error("Password change error:", err);
 
       res.status(500).json({
         success: false,
@@ -1237,22 +1201,20 @@ app.post(
 app.get(
   "/api/admin/profile",
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
-      const admin = db
-        .prepare(`
-          SELECT id, username
-          FROM admin
-          WHERE id = 1
-        `)
-        .get();
+      const result = await pool.query(`
+        SELECT id, username
+        FROM admin
+        WHERE id = 1
+      `);
 
       res.json({
         success: true,
-        admin
+        admin: result.rows[0] || null
       });
     } catch (err) {
-      console.error(err);
+      console.error("Profile error:", err);
 
       res.status(500).json({
         success: false,
@@ -1261,6 +1223,30 @@ app.get(
     }
   }
 );
+
+/* =========================================================
+   HEALTH CHECK
+========================================================= */
+
+app.get("/api/health", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
+
+    res.json({
+      success: true,
+      database: "PostgreSQL",
+      status: "connected"
+    });
+  } catch (err) {
+    console.error("Health check failed:", err);
+
+    res.status(500).json({
+      success: false,
+      database: "PostgreSQL",
+      status: "disconnected"
+    });
+  }
+});
 
 /* =========================================================
    STATIC FILES
@@ -1289,12 +1275,6 @@ app.get("/admin", (req, res) => {
    FRONTEND FALLBACK
 ========================================================= */
 
-/*
-  Using app.use instead of app.get("*")
-  avoids path-to-regexp wildcard issues
-  with newer Express versions.
-*/
-
 app.use((req, res) => {
   const indexFile = path.join(
     PUBLIC_DIR,
@@ -1312,17 +1292,39 @@ app.use((req, res) => {
    START SERVER
 ========================================================= */
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    "HASIYA ACCOUNT STORE running on port " + PORT
-  );
+async function startServer() {
+  try {
+    console.log("Connecting to PostgreSQL...");
 
-  console.log(
-    "Database: " + DB_FILE
-  );
+    await pool.query("SELECT 1");
 
-  console.log(
-    "Admin session/proxy configuration enabled."
-  );
-});
+    console.log("PostgreSQL connection successful.");
+
+    await initDatabase();
+    await initSettings();
+    await initAdmin();
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(
+        "HASIYA ACCOUNT STORE running on port " + PORT
+      );
+
+      console.log("Database: PostgreSQL");
+
+      console.log(
+        "Admin session/proxy configuration enabled."
+      );
+    });
+  } catch (err) {
+    console.error(
+      "SERVER STARTUP FAILED:"
+    );
+
+    console.error(err);
+
+    process.exit(1);
+  }
+}
+
+startServer();
 ```
