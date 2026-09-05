@@ -1,3 +1,4 @@
+```js
 const express = require("express");
 const session = require("express-session");
 const Database = require("better-sqlite3");
@@ -31,16 +32,52 @@ DATABASE
 
 let db;
 
+function createDatabase() {
+  db = new Database(DB_FILE);
+
+  db.pragma("foreign_keys = ON");
+
+  console.log("SQLite database created.");
+}
+
 function openDatabase() {
   try {
+    /*
+      If store.db does not exist, better-sqlite3
+      automatically creates a valid SQLite database.
+    */
+
     db = new Database(DB_FILE);
 
-    db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
 
     console.log("SQLite database opened.");
   } catch (err) {
-    console.error("Database open failed:", err.message);
+    console.error(
+      "Database open failed:",
+      err.message
+    );
+
+    /*
+      Close broken connection if possible.
+    */
+
+    try {
+      if (db) {
+        db.close();
+      }
+    } catch {}
+
+    db = null;
+
+    /*
+      IMPORTANT:
+
+      Do not keep trying to use the invalid file.
+
+      Move it to a backup filename so the server
+      can create a fresh valid SQLite database.
+    */
 
     const backup = path.join(
       DATA_DIR,
@@ -60,14 +97,31 @@ function openDatabase() {
         "Could not backup invalid database:",
         backupErr.message
       );
+
+      /*
+        If the invalid file cannot be renamed,
+        remove it so a new database can be created.
+      */
+
+      try {
+        if (fs.existsSync(DB_FILE)) {
+          fs.unlinkSync(DB_FILE);
+
+          console.error(
+            "Invalid database removed."
+          );
+        }
+      } catch (removeErr) {
+        console.error(
+          "Could not remove invalid database:",
+          removeErr.message
+        );
+
+        throw removeErr;
+      }
     }
 
-    db = new Database(DB_FILE);
-
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-
-    console.log("Created a new SQLite database.");
+    createDatabase();
   }
 }
 
@@ -156,6 +210,8 @@ function initSchema() {
       password_hash TEXT NOT NULL
     );
   `);
+
+  console.log("Database schema initialized.");
 }
 
 /*
@@ -685,11 +741,6 @@ app.post(
     }
 
     req.session.admin = true;
-
-    /*
-      Explicitly save the session before responding.
-      This helps prevent Render/proxy timing issues.
-    */
 
     req.session.save(
       err => {
@@ -1648,3 +1699,4 @@ process.on(
   "SIGTERM",
   () => shutdown("SIGTERM")
 );
+```
