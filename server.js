@@ -11,6 +11,16 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
 
+/* =========================================================
+   RENDER / PROXY
+========================================================= */
+
+app.set("trust proxy", 1);
+
+/* =========================================================
+   DATABASE
+========================================================= */
+
 if (!process.env.DATABASE_URL) {
   console.error("ERROR: DATABASE_URL environment variable is missing.");
   process.exit(1);
@@ -20,7 +30,10 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false
-  }
+  },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000
 });
 
 pool.on("error", (err) => {
@@ -40,24 +53,40 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+/*
+   IMPORTANT:
+   Render runs behind a reverse proxy.
+   trust proxy + proxy:true + secure:true
+   makes the admin session cookie work correctly on HTTPS.
+*/
+
 app.use(
   session({
+    name: "hasiya_admin_session",
+
     secret:
       process.env.SESSION_SECRET ||
-      "HASIYA_ACCOUNT_STORE_SESSION_SECRET_CHANGE_THIS",
+      "HASIYA_ACCOUNT_STORE_SESSION_SECRET_2026_CHANGE_THIS",
+
     resave: false,
+
     saveUninitialized: false,
+
+    proxy: true,
+
+    rolling: true,
+
     cookie: {
       httpOnly: true,
+      secure: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 1000 * 60 * 60 * 24
+      maxAge: 1000 * 60 * 60 * 24 * 7
     }
   })
 );
 
 /* =========================================================
-   DATABASE
+   DATABASE INITIALIZATION
 ========================================================= */
 
 async function initDatabase() {
@@ -111,7 +140,9 @@ async function initDatabase() {
     console.log("PostgreSQL database schema initialized.");
   } catch (err) {
     await client.query("ROLLBACK");
+
     console.error("Database initialization failed:", err);
+
     throw err;
   } finally {
     client.release();
@@ -195,6 +226,7 @@ async function initAdmin() {
   if (result.rows.length === 0) {
     const username = "admin";
     const password = "geenath2009#";
+
     const passwordHash = hashPassword(password);
 
     await pool.query(
@@ -228,10 +260,17 @@ async function getSettings() {
 }
 
 function requireAdmin(req, res, next) {
+  console.log(
+    "ADMIN AUTH:",
+    req.session && req.session.admin
+      ? req.session.admin.username
+      : "NOT LOGGED IN"
+  );
+
   if (!req.session || !req.session.admin) {
     return res.status(401).json({
       success: false,
-      message: "Unauthorized"
+      message: "Unauthorized. Admin login required."
     });
   }
 
@@ -408,25 +447,68 @@ app.post("/api/admin/login", async (req, res) => {
       });
     }
 
-    if (!verifyPassword(password, admin.password_hash)) {
+    if (
+      !verifyPassword(
+        password,
+        admin.password_hash
+      )
+    ) {
       return res.status(401).json({
         success: false,
         message: "Invalid username or password."
       });
     }
 
-    req.session.admin = {
-      id: admin.id,
-      username: admin.username
-    };
+    /*
+       Regenerate session after successful login.
+       This creates a fresh authenticated session.
+    */
 
-    res.json({
-      success: true,
-      message: "Login successful.",
-      admin: {
+    req.session.regenerate((sessionError) => {
+      if (sessionError) {
+        console.error(
+          "Session regenerate error:",
+          sessionError
+        );
+
+        return res.status(500).json({
+          success: false,
+          message: "Could not create login session."
+        });
+      }
+
+      req.session.admin = {
         id: admin.id,
         username: admin.username
-      }
+      };
+
+      req.session.save((saveError) => {
+        if (saveError) {
+          console.error(
+            "Session save error:",
+            saveError
+          );
+
+          return res.status(500).json({
+            success: false,
+            message: "Could not save login session."
+          });
+        }
+
+        console.log(
+          "Admin login successful:",
+          admin.username
+        );
+
+        res.json({
+          success: true,
+          message: "Login successful.",
+          admin: {
+            id: admin.id,
+            username: admin.username
+          }
+        });
+      });
     });
   } catch (err) {
     console.error("Login error:", err);
@@ -443,7 +525,22 @@ app.post("/api/admin/login", async (req, res) => {
 ========================================================= */
 
 app.post("/api/admin/logout", (req, res) => {
-  req.session.destroy(() => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("Logout error:", err);
+
+      return res.status(500).json({
+        success: false,
+        message: "Logout failed."
+      });
+    }
+
+    res.clearCookie("hasiya_admin_session", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax"
+    });
+
     res.json({
       success: true,
       message: "Logged out."
@@ -552,6 +649,8 @@ app.post(
   requireAdmin,
   async (req, res) => {
     try {
+      console.log("CREATE ACCOUNT REQUEST RECEIVED");
+
       const body = req.body || {};
 
       const title = cleanString(body.title);
@@ -643,6 +742,11 @@ app.post(
           featured,
           status
         ]
+      );
+
+      console.log(
+        "ACCOUNT CREATED:",
+        result.rows[0].id
       );
 
       res.status(201).json({
@@ -1046,14 +1150,16 @@ app.post(
       if (!currentPassword || !newPassword) {
         return res.status(400).json({
           success: false,
-          message: "Current and new password are required."
+          message:
+            "Current and new password are required."
         });
       }
 
       if (newPassword.length < 6) {
         return res.status(400).json({
           success: false,
-          message: "New password must be at least 6 characters."
+          message:
+            "New password must be at least 6 characters."
         });
       }
 
@@ -1078,7 +1184,8 @@ app.post(
       ) {
         return res.status(401).json({
           success: false,
-          message: "Current password is incorrect."
+          message:
+            "Current password is incorrect."
         });
       }
 
@@ -1091,14 +1198,16 @@ app.post(
 
       res.json({
         success: true,
-        message: "Password changed successfully."
+        message:
+          "Password changed successfully."
       });
     } catch (err) {
       console.error("Password change error:", err);
 
       res.status(500).json({
         success: false,
-        message: "Could not change password."
+        message:
+          "Could not change password."
       });
     }
   }
@@ -1219,10 +1328,12 @@ async function startServer() {
 
       console.log("Database: PostgreSQL");
       console.log("Admin session/proxy configuration enabled.");
+      console.log("HTTPS secure session enabled.");
     });
   } catch (err) {
     console.error("SERVER STARTUP FAILED:");
     console.error(err);
+
     process.exit(1);
   }
 }
