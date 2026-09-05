@@ -1,64 +1,928 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HASIYA ACCOUNT STORE — Admin</title><link rel="stylesheet" href="/styles.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>HASIYA ACCOUNT STORE — Admin</title>
+
+<link rel="stylesheet" href="/styles.css">
+
+<style>
+/* =========================================
+   HASIYA ACCOUNT STORE — ADMIN LOGIN
+   ========================================= */
+
+.login-card {
+  width: min(460px, 100%);
+  margin: 70px auto;
+  padding: 42px 38px;
+  text-align: center;
+  border-radius: 24px;
+
+  background: linear-gradient(
+    145deg,
+    rgba(20, 27, 40, 0.98),
+    rgba(8, 12, 20, 0.98)
+  );
+
+  border: 1px solid rgba(255, 255, 255, 0.09);
+
+  box-shadow:
+    0 25px 70px rgba(0, 0, 0, 0.45),
+    0 0 35px rgba(40, 120, 255, 0.08);
+}
+
+/* Lock icon */
+
+.login-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 20px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 18px;
+
+  font-size: 28px;
+
+  background: rgba(40, 120, 255, 0.10);
+  border: 1px solid rgba(80, 150, 255, 0.20);
+
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.25),
+    inset 0 0 20px rgba(70, 140, 255, 0.04);
+}
+
+/* Small heading */
+
+.login-card .eyebrow {
+  margin-bottom: 10px;
+
+  font-size: 11px;
+  font-weight: 800;
+
+  letter-spacing: 2.5px;
+
+  opacity: 0.75;
+}
+
+/* Main heading */
+
+.login-card h1 {
+  margin: 0;
+
+  font-size: 34px;
+  font-weight: 900;
+
+  letter-spacing: -0.8px;
+}
+
+/* Description */
+
+.login-card .muted {
+  max-width: 340px;
+
+  margin: 12px auto 30px;
+
+  line-height: 1.6;
+
+  font-size: 14px;
+
+  opacity: 0.65;
+}
+
+/* Login form */
+
+.login-card form {
+  text-align: left;
+}
+
+/* Labels */
+
+.login-card label {
+  display: block;
+
+  margin-bottom: 17px;
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Inputs */
+
+.login-card input {
+  width: 100%;
+  box-sizing: border-box;
+
+  margin-top: 8px;
+
+  padding: 14px 16px;
+
+  border-radius: 12px;
+
+  border: 1px solid rgba(255, 255, 255, 0.10);
+
+  background: rgba(255, 255, 255, 0.045);
+
+  color: inherit;
+
+  outline: none;
+
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* Placeholder */
+
+.login-card input::placeholder {
+  opacity: 0.4;
+}
+
+/* Input focus */
+
+.login-card input:focus {
+  border-color: rgba(70, 145, 255, 0.65);
+
+  background: rgba(255, 255, 255, 0.065);
+
+  box-shadow:
+    0 0 0 3px rgba(70, 145, 255, 0.08);
+}
+
+/* Login button */
+
+.login-btn {
+  width: 100%;
+
+  min-height: 50px;
+
+  margin-top: 5px;
+
+  border-radius: 13px;
+
+  font-weight: 900;
+
+  letter-spacing: 0.5px;
+
+  cursor: pointer;
+
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.login-btn:hover {
+  transform: translateY(-1px);
+
+  box-shadow:
+    0 10px 25px rgba(0, 0, 0, 0.25);
+}
+
+.login-btn:active {
+  transform: translateY(0);
+}
+
+/* Security message */
+
+.login-security {
+  display: flex;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 7px;
+
+  margin-top: 24px;
+  padding-top: 20px;
+
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+
+  font-size: 11px;
+
+  opacity: 0.45;
+}
+
+/* Mobile */
+
+@media (max-width: 520px) {
+
+  .login-card {
+    margin: 35px auto;
+
+    padding: 32px 22px;
+
+    border-radius: 20px;
+  }
+
+  .login-card h1 {
+    font-size: 28px;
+  }
+
+  .login-card .muted {
+    font-size: 13px;
+  }
+}
+</style>
+
 </head>
+
 <body class="admin-body">
-<header class="nav"><a class="brand-mini" href="/">HASIYA <span>ADMIN</span></a><nav><a href="/" target="_blank">VIEW STORE</a></nav></header>
+
+<!-- =========================================
+     ADMIN NAVBAR
+     ========================================= -->
+
+<header class="nav">
+
+  <a class="brand-mini" href="/">
+    HASIYA <span>ADMIN</span>
+  </a>
+
+  <nav>
+    <a href="/" target="_blank">
+      VIEW STORE
+    </a>
+  </nav>
+
+</header>
+
+
 <main class="admin-wrap">
+
+<!-- =========================================
+     ADMIN LOGIN
+     ========================================= -->
+
 <section id="loginView" class="admin-card login-card">
-  <div class="eyebrow">PRIVATE CONTROL PANEL</div><h1>Admin Login</h1>
-  <p class="muted">Customer accounts and listings cannot be created here by the public.</p>
-  <form id="loginForm"><label>Username<input id="loginUser" value="admin" autocomplete="username"></label><label>Password<input id="loginPass" type="password" autocomplete="current-password"></label><button class="btn primary">LOGIN</button><div id="loginMsg" class="msg"></div></form>
+
+  <div class="login-icon">
+    🔐
+  </div>
+
+  <div class="eyebrow">
+    PRIVATE CONTROL PANEL
+  </div>
+
+  <h1>
+    Admin Login
+  </h1>
+
+  <p class="muted">
+    Secure access to manage accounts, listings and store settings.
+  </p>
+
+  <form id="loginForm">
+
+    <label>
+      Username
+
+      <input
+        id="loginUser"
+        value="admin"
+        autocomplete="username"
+        placeholder="Enter admin username"
+      >
+
+    </label>
+
+
+    <label>
+      Password
+
+      <input
+        id="loginPass"
+        type="password"
+        autocomplete="current-password"
+        placeholder="Enter admin password"
+      >
+
+    </label>
+
+
+    <button
+      class="btn primary login-btn"
+      type="submit"
+    >
+      LOGIN TO CONTROL PANEL
+    </button>
+
+
+    <div
+      id="loginMsg"
+      class="msg">
+    </div>
+
+  </form>
+
+
+  <div class="login-security">
+
+    <span>🔒</span>
+
+    <span>
+      Private & Secure Admin Access
+    </span>
+
+  </div>
+
 </section>
+
+
+<!-- =========================================
+     DASHBOARD
+     ========================================= -->
 
 <section id="dashboardView" hidden>
-  <div class="admin-title"><div><span class="eyebrow">CONTROL CENTER</span><h1>HASIYA ACCOUNT STORE</h1></div><button class="btn ghost" id="logoutBtn">LOGOUT</button></div>
-  <div class="stats">
-    <div><span>Total Accounts</span><strong id="sTotal">0</strong></div><div><span>Available</span><strong id="sAvail">0</strong></div>
-    <div><span>Sold Out</span><strong id="sSold">0</strong></div><div><span>Featured</span><strong id="sFeatured">0</strong></div>
-    <div><span>Listed Value</span><strong id="sValue">Rs. 0</strong></div>
+
+
+  <!-- Dashboard title -->
+
+  <div class="admin-title">
+
+    <div>
+
+      <span class="eyebrow">
+        CONTROL CENTER
+      </span>
+
+      <h1>
+        HASIYA ACCOUNT STORE
+      </h1>
+
+    </div>
+
+
+    <button
+      class="btn ghost"
+      id="logoutBtn"
+    >
+      LOGOUT
+    </button>
+
   </div>
+
+
+  <!-- =========================================
+       STATISTICS
+       ========================================= -->
+
+  <div class="stats">
+
+    <div>
+      <span>
+        Total Accounts
+      </span>
+
+      <strong id="sTotal">
+        0
+      </strong>
+    </div>
+
+
+    <div>
+      <span>
+        Available
+      </span>
+
+      <strong id="sAvail">
+        0
+      </strong>
+    </div>
+
+
+    <div>
+      <span>
+        Sold Out
+      </span>
+
+      <strong id="sSold">
+        0
+      </strong>
+    </div>
+
+
+    <div>
+      <span>
+        Featured
+      </span>
+
+      <strong id="sFeatured">
+        0
+      </strong>
+    </div>
+
+
+    <div>
+      <span>
+        Listed Value
+      </span>
+
+      <strong id="sValue">
+        Rs. 0
+      </strong>
+    </div>
+
+  </div>
+
+
+  <!-- =========================================
+       ADMIN GRID
+       ========================================= -->
+
   <div class="admin-grid">
-    <section class="admin-card"><div class="card-head"><h2 id="formTitle">ADD NEW ACCOUNT</h2><button class="btn ghost small" id="clearForm">CLEAR</button></div>
-      <form id="accountForm" class="form-grid">
-        <input type="hidden" id="editId">
-        <label>Account Title<input id="title" required></label><label>Game<input id="game" required></label>
-        <label>Price (LKR)<input id="price" type="number" min="0" required></label><label>Price Range<input id="priceRange" readonly placeholder="Auto"></label>
-        <label class="full">Google Drive Collage Link<input id="image_url" required placeholder="https://drive.google.com/file/d/.../view"></label>
-        <div class="full hint">Drive file must be shared as <b>Anyone with the link</b>. Common Drive links are converted automatically.</div>
-        <label>Level<input id="level"></label><label>Fashion / Bundles<input id="fashion"></label>
-        <label>Evo Guns<input id="evo_guns"></label><label>Emotes<input id="emotes"></label>
-        <label>Likes<input id="likes"></label><label>Bind<input id="bind_info"></label>
-        <label class="full">Description<textarea id="description" rows="4"></textarea></label>
-        <label>Featured<select id="featured"><option value="0">NO</option><option value="1">YES</option></select></label>
-        <label>Status<select id="status"><option value="AVAILABLE">AVAILABLE</option><option value="SOLD">SOLD OUT</option></select></label>
-        <div class="full"><button class="btn primary" id="publishBtn">PUBLISH ACCOUNT</button><span id="formMsg" class="msg"></span></div>
+
+
+    <!-- =======================================
+         ADD / EDIT ACCOUNT
+         ======================================= -->
+
+    <section class="admin-card">
+
+      <div class="card-head">
+
+        <h2 id="formTitle">
+          ADD NEW ACCOUNT
+        </h2>
+
+        <button
+          class="btn ghost small"
+          id="clearForm"
+          type="button"
+        >
+          CLEAR
+        </button>
+
+      </div>
+
+
+      <form
+        id="accountForm"
+        class="form-grid"
+      >
+
+
+        <input
+          type="hidden"
+          id="editId"
+        >
+
+
+        <!-- Account title -->
+
+        <label>
+
+          Account Title
+
+          <input
+            id="title"
+            required
+          >
+
+        </label>
+
+
+        <!-- Game -->
+
+        <label>
+
+          Game
+
+          <input
+            id="game"
+            required
+          >
+
+        </label>
+
+
+        <!-- Price -->
+
+        <label>
+
+          Price (LKR)
+
+          <input
+            id="price"
+            type="number"
+            min="0"
+            required
+          >
+
+        </label>
+
+
+        <!-- Price Range -->
+
+        <label>
+
+          Price Range
+
+          <input
+            id="priceRange"
+            readonly
+            placeholder="Auto"
+          >
+
+        </label>
+
+
+        <!-- Google Drive -->
+
+        <label class="full">
+
+          Google Drive Collage Link
+
+          <input
+            id="image_url"
+            required
+            placeholder="https://drive.google.com/file/d/.../view"
+          >
+
+        </label>
+
+
+        <div class="full hint">
+
+          Drive file must be shared as
+          <b>Anyone with the link</b>.
+
+          Common Drive links are converted automatically.
+
+        </div>
+
+
+        <!-- Level -->
+
+        <label>
+
+          Level
+
+          <input
+            id="level"
+          >
+
+        </label>
+
+
+        <!-- Fashion -->
+
+        <label>
+
+          Fashion / Bundles
+
+          <input
+            id="fashion"
+          >
+
+        </label>
+
+
+        <!-- Evo Guns -->
+
+        <label>
+
+          Evo Guns
+
+          <input
+            id="evo_guns"
+          >
+
+        </label>
+
+
+        <!-- Emotes -->
+
+        <label>
+
+          Emotes
+
+          <input
+            id="emotes"
+          >
+
+        </label>
+
+
+        <!-- Likes -->
+
+        <label>
+
+          Likes
+
+          <input
+            id="likes"
+          >
+
+        </label>
+
+
+        <!-- Bind -->
+
+        <label>
+
+          Bind
+
+          <input
+            id="bind_info"
+          >
+
+        </label>
+
+
+        <!-- Description -->
+
+        <label class="full">
+
+          Description
+
+          <textarea
+            id="description"
+            rows="4"
+          ></textarea>
+
+        </label>
+
+
+        <!-- Featured -->
+
+        <label>
+
+          Featured
+
+          <select id="featured">
+
+            <option value="0">
+              NO
+            </option>
+
+            <option value="1">
+              YES
+            </option>
+
+          </select>
+
+        </label>
+
+
+        <!-- Status -->
+
+        <label>
+
+          Status
+
+          <select id="status">
+
+            <option value="AVAILABLE">
+              AVAILABLE
+            </option>
+
+            <option value="SOLD">
+              SOLD OUT
+            </option>
+
+          </select>
+
+        </label>
+
+
+        <!-- Publish -->
+
+        <div class="full">
+
+          <button
+            class="btn primary"
+            id="publishBtn"
+            type="submit"
+          >
+            PUBLISH ACCOUNT
+          </button>
+
+          <span
+            id="formMsg"
+            class="msg"
+          ></span>
+
+        </div>
+
+
       </form>
+
     </section>
 
-    <section class="admin-card"><div class="card-head"><h2>MANAGE ACCOUNTS</h2><input id="search" class="search" placeholder="Search title / game"></div><div id="adminAccounts"></div></section>
+
+    <!-- =======================================
+         MANAGE ACCOUNTS
+         ======================================= -->
+
+    <section class="admin-card">
+
+      <div class="card-head">
+
+        <h2>
+          MANAGE ACCOUNTS
+        </h2>
+
+        <input
+          id="search"
+          class="search"
+          placeholder="Search title / game"
+        >
+
+      </div>
+
+
+      <div id="adminAccounts"></div>
+
+    </section>
+
+
   </div>
 
-  <section class="admin-card settings-card"><div class="card-head"><h2>STORE SETTINGS</h2></div>
-    <form id="settingsForm" class="form-grid">
-      <label>WhatsApp Number (country code, no +)<input id="whatsapp"></label>
-      <label>Store Name<input id="setName"></label>
-      <label>Slogan<input id="setSlogan"></label>
-      <label>Secondary Slogan<input id="setSecondary"></label>
-      <div class="full"><button class="btn primary">SAVE STORE SETTINGS</button><span id="settingsMsg" class="msg"></span></div>
+
+  <!-- =========================================
+       STORE SETTINGS
+       ========================================= -->
+
+  <section class="admin-card settings-card">
+
+    <div class="card-head">
+
+      <h2>
+        STORE SETTINGS
+      </h2>
+
+    </div>
+
+
+    <form
+      id="settingsForm"
+      class="form-grid"
+    >
+
+
+      <!-- WhatsApp -->
+
+      <label>
+
+        WhatsApp Number
+        (country code, no +)
+
+        <input
+          id="whatsapp"
+        >
+
+      </label>
+
+
+      <!-- Store name -->
+
+      <label>
+
+        Store Name
+
+        <input
+          id="setName"
+        >
+
+      </label>
+
+
+      <!-- Slogan -->
+
+      <label>
+
+        Slogan
+
+        <input
+          id="setSlogan"
+        >
+
+      </label>
+
+
+      <!-- Secondary slogan -->
+
+      <label>
+
+        Secondary Slogan
+
+        <input
+          id="setSecondary"
+        >
+
+      </label>
+
+
+      <div class="full">
+
+        <button
+          class="btn primary"
+          type="submit"
+        >
+          SAVE STORE SETTINGS
+        </button>
+
+        <span
+          id="settingsMsg"
+          class="msg"
+        ></span>
+
+      </div>
+
+
     </form>
+
   </section>
 
-  <section class="admin-card"><div class="card-head"><h2>CHANGE ADMIN PASSWORD</h2></div>
-    <form id="passwordForm" class="form-grid">
-      <label>Current Password<input id="currentPassword" type="password"></label><label>New Password<input id="newPassword" type="password" minlength="10"></label>
-      <div class="full"><button class="btn primary">CHANGE PASSWORD</button><span id="passwordMsg" class="msg"></span></div>
+
+  <!-- =========================================
+       CHANGE ADMIN PASSWORD
+       ========================================= -->
+
+  <section class="admin-card">
+
+    <div class="card-head">
+
+      <h2>
+        CHANGE ADMIN PASSWORD
+      </h2>
+
+    </div>
+
+
+    <form
+      id="passwordForm"
+      class="form-grid"
+    >
+
+
+      <!-- Current password -->
+
+      <label>
+
+        Current Password
+
+        <input
+          id="currentPassword"
+          type="password"
+        >
+
+      </label>
+
+
+      <!-- New password -->
+
+      <label>
+
+        New Password
+
+        <input
+          id="newPassword"
+          type="password"
+          minlength="10"
+        >
+
+      </label>
+
+
+      <div class="full">
+
+        <button
+          class="btn primary"
+          type="submit"
+        >
+          CHANGE PASSWORD
+        </button>
+
+        <span
+          id="passwordMsg"
+          class="msg"
+        ></span>
+
+      </div>
+
+
     </form>
+
   </section>
+
+
 </section>
+
 </main>
+
+
+<!-- =========================================
+     ADMIN JAVASCRIPT
+     ========================================= -->
+
 <script src="/admin.js"></script>
+
 </body>
 </html>
